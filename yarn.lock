@@ -5497,6 +5497,7 @@ __metadata:
     socks-proxy-agent: "npm:^8.0.2"
     tsx: "npm:^4.19.3"
     typescript: "npm:^5.8.3"
+    youtube-transcript: "npm:^1.3.1"
     zod: "npm:^4.1.13"
   languageName: unknown
   linkType: soft
@@ -22460,6 +22461,13 @@ __metadata:
   version: 0.1.0
   resolution: "yocto-queue@npm:0.1.0"
   checksum: 10c0/dceb44c28578b31641e13695d200d34ec4ab3966a5729814d5445b194933c096b7ced71494ce53a0e8820685d1d010df8b2422e5bf2cdea7e469d97ffbea306f
+  languageName: node
+  linkType: hard
+
+"youtube-transcript@npm:^1.3.1":
+  version: 1.3.1
+  resolution: "youtube-transcript@npm:1.3.1"
+  checksum: 10c0/4ed965e11be3043fbdec498fa67f33c83ba20a33d335d2cf38e4752b3c120e0526b228dcc04effeebfe23eabd421d17ab7e5142a4ac93e0661c071078c5f2a13
   languageName: node
   linkType: hard
 
