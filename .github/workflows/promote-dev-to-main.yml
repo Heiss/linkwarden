@@ -32,9 +32,10 @@ jobs:
           fi
 
           echo "Opening promotion PR for $ahead commit(s)"
+          body="Automated PR proposing to promote the current state of \`dev\` to \`main\`."
+          body+=$'\n\n'
+          body+="Merging this triggers a new release tag and container build; review and merge manually when ready."
           gh pr create --repo "$repo" \
             --base main --head dev \
             --title "Promote dev to main" \
-            --body "Automated PR proposing to promote the current state of \`dev\` to \`main\`.
-
-Merging this triggers a new release tag and container build — review and merge manually when ready."
+            --body "$body"
