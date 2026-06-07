@@ -1,0 +1,38 @@
+name: Tag release on main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next release number
+        id: next_tag
+        run: |
+          latest=$(git tag --list | grep -E '^v[0-9]+$' | sort -t v -k2 -n | tail -n1)
+          if [ -z "$latest" ]; then
+            next=1
+          else
+            next=$(( ${latest#v} + 1 ))
+          fi
+          tag="v${next}"
+          echo "Latest release tag: ${latest:-none} -> next: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.next_tag.outputs.tag }}"
+          git push origin "${{ steps.next_tag.outputs.tag }}"
