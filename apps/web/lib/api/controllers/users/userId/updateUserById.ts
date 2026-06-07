@@ -215,6 +215,9 @@ export default async function updateUserById(
       aiTaggingMethod: data.aiTaggingMethod,
       aiPredefinedTags: data.aiPredefinedTags,
       aiTagExistingLinks: data.aiTagExistingLinks,
+      youtubeDescriptionEnabled: data.youtubeDescriptionEnabled,
+      youtubeDescriptionSystemPrompt: data.youtubeDescriptionSystemPrompt,
+      youtubeDescribeExistingLinks: data.youtubeDescribeExistingLinks,
       locale: i18n.locales.includes(data.locale || "") ? data.locale : "en",
       archiveAsScreenshot: data.archiveAsScreenshot,
       archiveAsMonolith: data.archiveAsMonolith,
@@ -240,6 +243,26 @@ export default async function updateUserById(
       },
     },
   });
+
+  // When the user first enables "describe existing links", reset youtubeDescribed
+  // on their YouTube links so the worker picks them up
+  if (
+    data.youtubeDescribeExistingLinks === true &&
+    !user?.youtubeDescribeExistingLinks
+  ) {
+    await prisma.link.updateMany({
+      where: {
+        createdById: userId,
+        youtubeDescribed: true,
+        readable: { not: null },
+        OR: [
+          { url: { contains: "youtube.com" } },
+          { url: { contains: "youtu.be" } },
+        ],
+      },
+      data: { youtubeDescribed: false },
+    });
+  }
 
   const {
     password,
