@@ -162,9 +162,7 @@ export const PreservationContent: React.FC<Props> = ({ link, format }) => {
     switch (currentFormat) {
       case ArchivedFormat.readability:
         return (
-          <div className="overflow-auto w-full h-full">
-            <ReadableView link={link} />
-          </div>
+          <ReadableView link={link} />
         );
 
       case ArchivedFormat.monolith:
