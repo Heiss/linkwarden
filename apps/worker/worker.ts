@@ -1,4 +1,5 @@
 import { autoTagPreservedLinks } from "./workers/autoTagPreservedLinks";
+import { autoDescribeYoutubeLinks } from "./workers/autoDescribeYoutubeLinks";
 import { startIndexing } from "./workers/linkIndexing";
 import { linkProcessing } from "./workers/linkProcessing";
 import { migrationWorker } from "./workers/migrationWorker";
@@ -15,6 +16,7 @@ async function init() {
   startRSSPolling();
   linkProcessing(workerIntervalInSeconds);
   autoTagPreservedLinks(workerIntervalInSeconds);
+  autoDescribeYoutubeLinks(workerIntervalInSeconds);
   startIndexing(workerIntervalInSeconds);
   trialEndEmailWorker();
 }
