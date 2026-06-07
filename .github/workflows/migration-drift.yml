@@ -59,7 +59,7 @@ jobs:
       - name: Check for schema drift
         run: |
           yarn workspace @linkwarden/prisma exec prisma migrate diff \
-            --from-migrations . \
+            --from-migrations ./migrations \
             --to-schema-datamodel schema.prisma \
             --shadow-database-url "$SHADOW_DATABASE_URL" \
             --exit-code
