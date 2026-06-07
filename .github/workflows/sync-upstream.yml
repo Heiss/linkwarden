@@ -35,11 +35,12 @@ jobs:
             fi
 
             echo "Opening sync PR for $behind new upstream commit(s)"
+            body="Automated PR tracking new commits on the \`dev\` branch of \`${{ env.UPSTREAM }}\`."
+            body+=$'\n\n'
+            body+="It merges automatically once it applies cleanly and required checks pass; otherwise it stays open as a reminder to merge the upstream changes manually."
             number=$(gh api "repos/$repo/pulls" \
               -f title="Sync upstream changes from ${{ env.UPSTREAM }} (dev)" \
-              -f body="Automated PR tracking new commits on \`${{ env.UPSTREAM }}\`'s \`dev\` branch.
-
-It is merged automatically once it applies cleanly and required checks pass — otherwise it stays open as a reminder to merge the upstream changes manually." \
+              -f body="$body" \
               -f head="linkwarden:dev" \
               -f base="dev" \
               --jq '.number')
