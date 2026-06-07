@@ -1,0 +1,55 @@
+name: Check pending migrations
+
+on:
+  pull_request:
+
+jobs:
+  check-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Yarn 4
+        run: |
+          sudo rm -f /usr/bin/yarn /usr/bin/yarnpkg || true
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
+      - name: Install packages
+        run: yarn install --immutable
+
+      - name: Create shadow database
+        run: psql -h localhost -U postgres -d postgres -c "CREATE DATABASE linkwarden_shadow;"
+        env:
+          PGPASSWORD: password
+
+      - name: Check for pending migrations
+        run: |
+          yarn workspace @linkwarden/prisma exec prisma migrate diff \
+            --from-migrations ./migrations \
+            --to-schema-datamodel schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres
+          SHADOW_DATABASE_URL: postgresql://postgres:password@localhost:5432/linkwarden_shadow
