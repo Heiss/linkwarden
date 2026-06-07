@@ -71,8 +71,8 @@ export const UpdateUserSchema = () => {
       .trim()
       .toLowerCase()
       .min(3)
-      .max(30)
-      .regex(/^[a-z0-9_-]{3,30}$/),
+      .max(50)
+      .regex(/^[a-z0-9_-]{3,50}$/),
     image: z.string().nullish(),
     password: z.string().min(8).max(2048).optional(),
     newPassword: z.string().min(8).max(2048).optional(),
@@ -85,6 +85,9 @@ export const UpdateUserSchema = () => {
     aiTaggingMethod: z.enum(AiTaggingMethod).optional(),
     aiPredefinedTags: z.array(z.string().max(20).trim()).max(20).optional(),
     aiTagExistingLinks: z.boolean().optional(),
+    youtubeDescriptionEnabled: z.boolean().optional(),
+    youtubeDescriptionSystemPrompt: z.string().max(2000).nullish(),
+    youtubeDescribeExistingLinks: z.boolean().optional(),
     locale: z.string().max(20).optional(),
     isPrivate: z.boolean().optional(),
     preventDuplicateLinks: z.boolean().optional(),

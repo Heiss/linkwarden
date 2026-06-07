@@ -5244,6 +5244,7 @@ __metadata:
     "@linkwarden/types": "npm:*"
     "@react-native-async-storage/async-storage": "npm:2.2.0"
     "@react-native-community/netinfo": "npm:11.4.1"
+    "@react-native-google-signin/google-signin": "npm:^15.0.0"
     "@react-native-menu/menu": "npm:2.0.0"
     "@react-navigation/bottom-tabs": "npm:^7.0.0"
     "@react-navigation/native": "npm:^7.0.0"
@@ -5255,6 +5256,7 @@ __metadata:
     "@types/react-test-renderer": "npm:^19.1.0"
     class-variance-authority: "npm:^0.7.1"
     expo: "npm:~54.0.0"
+    expo-apple-authentication: "npm:~8.0.7"
     expo-application: "npm:~7.0.8"
     expo-blur: "npm:~15.0.8"
     expo-build-properties: "npm:~1.0.10"
@@ -5497,6 +5499,7 @@ __metadata:
     socks-proxy-agent: "npm:^8.0.2"
     tsx: "npm:^4.19.3"
     typescript: "npm:^5.8.3"
+    youtube-transcript: "npm:^1.3.1"
     zod: "npm:^4.1.13"
   languageName: unknown
   linkType: soft
@@ -7069,6 +7072,20 @@ __metadata:
   peerDependencies:
     react-native: ">=0.59"
   checksum: 10c0/118ba6d495bd14c2dab3d228a0c1857620a293ae8592d170d70eaf88a6ac6a4e35c7f84527975a9054e36891a9694aacc8ec053326b5f05961459ed08a70dd35
+  languageName: node
+  linkType: hard
+
+"@react-native-google-signin/google-signin@npm:^15.0.0":
+  version: 15.0.0
+  resolution: "@react-native-google-signin/google-signin@npm:15.0.0"
+  peerDependencies:
+    expo: ">=52.0.40"
+    react: "*"
+    react-native: "*"
+  peerDependenciesMeta:
+    expo:
+      optional: true
+  checksum: 10c0/e0a2100bab0a59d795e352986cbc7bd3ba5fea85346ac628c8c5c7583af66ed3faed9873e2a53c422b86d44c8e21e2c8a1e3c96e85dc1ea559c28fbb3c35ee42
   languageName: node
   linkType: hard
 
@@ -12689,6 +12706,16 @@ __metadata:
     jest-message-util: "npm:^29.7.0"
     jest-util: "npm:^29.7.0"
   checksum: 10c0/2eddeace66e68b8d8ee5f7be57f3014b19770caaf6815c7a08d131821da527fb8c8cb7b3dcd7c883d2d3d8d184206a4268984618032d1e4b16dc8d6596475d41
+  languageName: node
+  linkType: hard
+
+"expo-apple-authentication@npm:~8.0.7":
+  version: 8.0.8
+  resolution: "expo-apple-authentication@npm:8.0.8"
+  peerDependencies:
+    expo: "*"
+    react-native: "*"
+  checksum: 10c0/6b5179de9a6d4340a35c8487781919f05f9b8170e98fcce5bf7de4e68b9df84b0a77991851b0210c1976d5673070378d8f89562d6d2f37371307e642a25446b1
   languageName: node
   linkType: hard
 
@@ -22460,6 +22487,13 @@ __metadata:
   version: 0.1.0
   resolution: "yocto-queue@npm:0.1.0"
   checksum: 10c0/dceb44c28578b31641e13695d200d34ec4ab3966a5729814d5445b194933c096b7ced71494ce53a0e8820685d1d010df8b2422e5bf2cdea7e469d97ffbea306f
+  languageName: node
+  linkType: hard
+
+"youtube-transcript@npm:^1.3.1":
+  version: 1.3.1
+  resolution: "youtube-transcript@npm:1.3.1"
+  checksum: 10c0/4ed965e11be3043fbdec498fa67f33c83ba20a33d335d2cf38e4752b3c120e0526b228dcc04effeebfe23eabd421d17ab7e5142a4ac93e0661c071078c5f2a13
   languageName: node
   linkType: hard
 

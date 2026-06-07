@@ -209,6 +209,7 @@ export interface MobileData {
   theme: "light" | "dark" | "system";
   preferredBrowser: "app" | "system";
   preferredCollection: CollectionIncludingMembersAndLinkCount | null;
+  offlineEnabled: boolean;
 }
 
 export interface WorkerStats {
@@ -233,5 +234,7 @@ export type GetUserByIdResponse = Omit<User, "password"> &
     };
   } & {
     dashboardSections: DashboardSection[];
+    hasPassword: boolean;
+    hasOAuthAccount: boolean;
     hasUnIndexedLinks: boolean;
   };

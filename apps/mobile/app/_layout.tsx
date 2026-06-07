@@ -1,5 +1,4 @@
 import {
-  router,
   Stack,
   usePathname,
   useRootNavigationState,
@@ -9,38 +8,21 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { mmkvPersister } from "@/lib/queryPersister";
 import { useState, useEffect } from "react";
 import "../styles/global.css";
-import { SheetManager, SheetProvider } from "react-native-actions-sheet";
+import { SheetProvider } from "react-native-actions-sheet";
 import "@/components/ActionSheets/Sheets";
 import { useColorScheme } from "nativewind";
 import { lightTheme, darkTheme } from "../lib/theme";
-import {
-  Alert,
-  Linking,
-  Platform,
-  Share,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { View } from "react-native";
 import { rawTheme, ThemeName } from "@/lib/colors";
 import { useShareIntent } from "expo-share-intent";
 import useDataStore from "@/store/data";
 import useAuthStore from "@/store/auth";
+import useReaderStore from "@/store/reader";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import * as DropdownMenu from "zeego/dropdown-menu";
-import { Compass, Ellipsis } from "lucide-react-native";
-import { Chromium } from "@/components/ui/Icons";
-import useTmpStore from "@/store/tmp";
-import {
-  LinkIncludingShortenedCollectionAndTags,
-  MobileAuth,
-} from "@linkwarden/types/global";
-import { useDeleteLink, useUpdateLink } from "@linkwarden/router/links";
-import { deleteLinkCache } from "@/lib/cache";
 import { queryClient } from "@/lib/queryClient";
-import getOriginalFormat from "@linkwarden/lib/getOriginalFormat";
 import { StatusBar } from "expo-status-bar";
-import { cn } from "@linkwarden/lib/utils";
 import * as Sentry from "@sentry/react-native";
+import OfflineSyncProvider from "@/components/OfflineSyncProvider";
 
 Sentry.init({
   dsn: "https://00d7eed9e810cbbf91a7ed3547e37100@o4510998442475520.ingest.us.sentry.io/4511033679609856",
@@ -50,9 +32,9 @@ Sentry.init({
 
 export default Sentry.wrap(function RootLayout() {
   const [isLoading, setIsLoading] = useState(true);
-  const { hasShareIntent, shareIntent, error, resetShareIntent } =
-    useShareIntent();
+  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
   const { updateData, setData, data } = useDataStore();
+  const { setReader } = useReaderStore();
 
   const router = useRouter();
   const pathname = usePathname();
@@ -63,6 +45,7 @@ export default Sentry.wrap(function RootLayout() {
   useEffect(() => {
     setAuth();
     setData();
+    setReader();
   }, []);
 
   useEffect(() => {
@@ -108,7 +91,7 @@ export default Sentry.wrap(function RootLayout() {
         maxAge: Infinity,
         dehydrateOptions: {
           shouldDehydrateMutation: () => true,
-          shouldDehydrateQuery: () => true,
+          shouldDehydrateQuery: (query) => query.state.status === "success",
         },
       }}
       onSuccess={() => {
@@ -116,26 +99,13 @@ export default Sentry.wrap(function RootLayout() {
         queryClient.invalidateQueries();
       }}
     >
-      <RootComponent isLoading={isLoading} auth={auth} />
+      <RootComponent isLoading={isLoading} />
     </PersistQueryClientProvider>
   );
 });
 
-const RootComponent = ({
-  isLoading,
-  auth,
-}: {
-  isLoading: boolean;
-  auth: MobileAuth;
-}) => {
+const RootComponent = ({ isLoading }: { isLoading: boolean }) => {
   const { colorScheme } = useColorScheme();
-  const updateLink = useUpdateLink({ auth, Alert });
-  const deleteLink = useDeleteLink({ auth, Alert });
-
-  const { tmp } = useTmpStore();
-
-  const isIOS26Plus =
-    Platform.OS === "ios" && parseInt(Platform.Version, 10) >= 26;
 
   return (
     <KeyboardProvider>
@@ -143,6 +113,7 @@ const RootComponent = ({
         style={[{ flex: 1 }, colorScheme === "dark" ? darkTheme : lightTheme]}
       >
         <SheetProvider>
+          <OfflineSyncProvider />
           <StatusBar
             style={colorScheme === "dark" ? "light" : "dark"}
             backgroundColor={rawTheme[colorScheme as ThemeName]["base-100"]}
@@ -171,159 +142,10 @@ const RootComponent = ({
                         ? rawTheme["dark"]["base-100"]
                         : "white",
                   },
-                  headerRight: () => (
-                    <View
-                      className={cn("flex-row gap-5", isIOS26Plus && "px-2")}
-                    >
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (tmp.link) {
-                            if (tmp.link.url) {
-                              return Linking.openURL(tmp.link.url);
-                            } else {
-                              const format = getOriginalFormat(tmp.link);
-
-                              return Linking.openURL(
-                                format !== null
-                                  ? auth.instance +
-                                      `/preserved/${tmp.link.id}?format=${format}`
-                                  : tmp.link.url || ""
-                              );
-                            }
-                          }
-                        }}
-                      >
-                        {Platform.OS === "ios" ? (
-                          <Compass
-                            size={21}
-                            color={
-                              rawTheme[colorScheme as ThemeName]["base-content"]
-                            }
-                          />
-                        ) : (
-                          <Chromium
-                            stroke={
-                              rawTheme[colorScheme as ThemeName]["base-content"]
-                            }
-                          />
-                        )}
-                      </TouchableOpacity>
-                      <DropdownMenu.Root>
-                        <DropdownMenu.Trigger>
-                          <TouchableOpacity>
-                            <Ellipsis
-                              size={21}
-                              color={
-                                rawTheme[colorScheme as ThemeName][
-                                  "base-content"
-                                ]
-                              }
-                            />
-                          </TouchableOpacity>
-                        </DropdownMenu.Trigger>
-
-                        <DropdownMenu.Content>
-                          {tmp.link?.url && (
-                            <DropdownMenu.Item
-                              key="share"
-                              onSelect={async () => {
-                                await Share.share({
-                                  ...(Platform.OS === "android"
-                                    ? { message: tmp.link?.url as string }
-                                    : { url: tmp.link?.url as string }),
-                                });
-                              }}
-                            >
-                              <DropdownMenu.ItemTitle>
-                                Share
-                              </DropdownMenu.ItemTitle>
-                            </DropdownMenu.Item>
-                          )}
-
-                          {tmp.link && tmp.user && (
-                            <DropdownMenu.Item
-                              key="pin-link"
-                              onSelect={() => {
-                                const isAlreadyPinned =
-                                  tmp.link?.pinnedBy && tmp.link.pinnedBy[0]
-                                    ? true
-                                    : false;
-                                updateLink.mutateAsync({
-                                  ...(tmp.link as LinkIncludingShortenedCollectionAndTags),
-                                  pinnedBy: (isAlreadyPinned
-                                    ? [{ id: undefined }]
-                                    : [{ id: tmp.user?.id }]) as any,
-                                });
-                              }}
-                            >
-                              <DropdownMenu.ItemTitle>
-                                {tmp.link.pinnedBy && tmp.link.pinnedBy[0]
-                                  ? "Unpin Link"
-                                  : "Pin Link"}
-                              </DropdownMenu.ItemTitle>
-                            </DropdownMenu.Item>
-                          )}
-
-                          {tmp.link && (
-                            <DropdownMenu.Item
-                              key="edit-link"
-                              onSelect={() => {
-                                SheetManager.show("edit-link-sheet", {
-                                  payload: {
-                                    link: tmp.link as LinkIncludingShortenedCollectionAndTags,
-                                  },
-                                });
-                              }}
-                            >
-                              <DropdownMenu.ItemTitle>
-                                Edit Link
-                              </DropdownMenu.ItemTitle>
-                            </DropdownMenu.Item>
-                          )}
-
-                          {tmp.link && (
-                            <DropdownMenu.Item
-                              key="delete-link"
-                              onSelect={() => {
-                                return Alert.alert(
-                                  "Delete Link",
-                                  "Are you sure you want to delete this link? This action cannot be undone.",
-                                  [
-                                    {
-                                      text: "Cancel",
-                                      style: "cancel",
-                                    },
-                                    {
-                                      text: "Delete",
-                                      style: "destructive",
-                                      onPress: async () => {
-                                        deleteLink.mutate(
-                                          tmp.link?.id as number
-                                        );
-
-                                        await deleteLinkCache(
-                                          tmp.link?.id as number
-                                        );
-
-                                        router.back();
-                                      },
-                                    },
-                                  ]
-                                );
-                              }}
-                            >
-                              <DropdownMenu.ItemTitle>
-                                Delete
-                              </DropdownMenu.ItemTitle>
-                            </DropdownMenu.Item>
-                          )}
-                        </DropdownMenu.Content>
-                      </DropdownMenu.Root>
-                    </View>
-                  ),
                 }}
               />
               <Stack.Screen name="login" />
+              <Stack.Screen name="register" />
               <Stack.Screen name="index" />
               <Stack.Screen name="incoming" />
               <Stack.Screen name="+not-found" />

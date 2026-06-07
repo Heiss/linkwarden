@@ -41,6 +41,10 @@ export default async function verifyByCredentials({
     return null;
   }
 
+  if (emailEnabled && !user.emailVerified) {
+    return null;
+  }
+
   let passwordMatches: boolean = false;
 
   if (user?.password) {

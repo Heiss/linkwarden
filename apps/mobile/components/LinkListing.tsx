@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Linking,
 } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
 import { decode } from "html-entities";
 import { LinkIncludingShortenedCollectionAndTags } from "@linkwarden/types/global";
 import { ArchivedFormat } from "@linkwarden/types/global";
@@ -30,7 +31,7 @@ import { useColorScheme } from "nativewind";
 import { CalendarDays, Folder } from "lucide-react-native";
 import useDataStore from "@/store/data";
 import { useEffect, useState } from "react";
-import { deleteLinkCache } from "@/lib/cache";
+import { deleteLinkCache, loadCacheOrFetch } from "@/lib/cache";
 
 type Props = {
   link: LinkIncludingShortenedCollectionAndTags;
@@ -48,6 +49,7 @@ const LinkListing = ({ link, dashboard }: Props) => {
   const deleteLink = useDeleteLink({ auth, Alert });
 
   const [url, setUrl] = useState("");
+  const [preview, setPreview] = useState("");
 
   useEffect(() => {
     try {
@@ -58,6 +60,26 @@ const LinkListing = ({ link, dashboard }: Props) => {
       console.log(error);
     }
   }, [link.url]);
+
+  useEffect(() => {
+    loadCacheOrFetch({
+      filePath:
+        FileSystem.documentDirectory + `archivedData/previews/link_${link.id}.jpg`,
+      setContent: setPreview,
+      shouldFetch: formatAvailable(link, "preview"),
+      onStart: () => setPreview(""),
+      errorMessage: "Failed to fetch preview",
+      fetchContent: async (filePath) => {
+        const apiUrl = `${auth.instance}/api/v1/archives/${link.id}?format=${ArchivedFormat.jpeg}&preview=true&updatedAt=${link.updatedAt}`;
+
+        const result = await FileSystem.downloadAsync(apiUrl, filePath, {
+          headers: { Authorization: `Bearer ${auth.session}` },
+        });
+
+        return result.uri;
+      },
+    });
+  }, [auth.instance, auth.session, link.id, link.preview, link.updatedAt]);
 
   return (
     <ContextMenu.Root>
@@ -72,6 +94,14 @@ const LinkListing = ({ link, dashboard }: Props) => {
           onLongPress={() => {}}
           onPress={() => {
             if (user) {
+              if (user.linksRouteTo === "DETAILS") {
+                void SheetManager.show("link-details-sheet", {
+                  payload: { link },
+                });
+
+                return;
+              }
+
               const format = getFormatBasedOnPreference({
                 link,
                 preference: user.linksRouteTo,
@@ -137,15 +167,16 @@ const LinkListing = ({ link, dashboard }: Props) => {
             <View className="flex-col items-end">
               <View className="rounded-lg overflow-hidden relative">
                 {formatAvailable(link, "preview") ? (
-                  <Image
-                    source={{
-                      uri: `${auth.instance}/api/v1/archives/${link.id}?format=${ArchivedFormat.jpeg}&preview=true&updatedAt=${link.updatedAt}`,
-                      headers: {
-                        Authorization: `Bearer ${auth.session}`,
-                      },
-                    }}
-                    className="rounded-md h-[60px] w-[90px] object-cover scale-105"
-                  />
+                  preview ? (
+                    <Image
+                      source={{
+                        uri: preview,
+                      }}
+                      className="rounded-md h-[60px] w-[90px] object-cover scale-105"
+                    />
+                  ) : (
+                    <View className="h-[60px] w-[90px]" />
+                  )
                 ) : !link.preview ? (
                   <ActivityIndicator
                     size="small"
@@ -230,6 +261,17 @@ const LinkListing = ({ link, dashboard }: Props) => {
           <ContextMenu.ItemTitle>
             {link.pinnedBy && link.pinnedBy[0] ? "Unpin Link" : "Pin Link"}
           </ContextMenu.ItemTitle>
+        </ContextMenu.Item>
+
+        <ContextMenu.Item
+          key="link-details"
+          onSelect={() => {
+            SheetManager.show("link-details-sheet", {
+              payload: { link },
+            });
+          }}
+        >
+          <ContextMenu.ItemTitle>Link Details</ContextMenu.ItemTitle>
         </ContextMenu.Item>
 
         <ContextMenu.Item

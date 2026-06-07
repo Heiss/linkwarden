@@ -2,11 +2,23 @@ import { Button } from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import { rawTheme, ThemeName } from "@/lib/colors";
 import useAuthStore from "@/store/auth";
-import { Redirect } from "expo-router";
+import {
+  isAtLeastInstanceVersion,
+  type Config,
+} from "@linkwarden/router/config";
+import * as AppleAuthentication from "expo-apple-authentication";
+import { GoogleSigninButton } from "@react-native-google-signin/google-signin";
+import { Redirect, router } from "expo-router";
 import { useColorScheme } from "nativewind";
 import { useEffect, useState } from "react";
-import { View, Text, Dimensions, TouchableOpacity, Image } from "react-native";
-import { SheetManager } from "react-native-actions-sheet";
+import {
+  Dimensions,
+  Image,
+  Platform,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Svg, { Path } from "react-native-svg";
 import {
   KeyboardStickyView,
@@ -14,32 +26,43 @@ import {
 } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+const cloudInstance = "https://cloud.linkwarden.app";
+
 export default function HomeScreen() {
-  const { auth, signIn } = useAuthStore();
+  const { auth, signIn, signInWithApple, signInWithGoogle } = useAuthStore();
   const { colorScheme } = useColorScheme();
   const [method, setMethod] = useState<"password" | "token">("password");
   const [isLoading, setIsLoading] = useState(false);
+  const [appleEnabled, setAppleEnabled] = useState(
+    Platform.OS === "ios" && (auth.instance || cloudInstance) === cloudInstance
+  );
+  const [googleEnabled, setGoogleEnabled] = useState(
+    (auth.instance || cloudInstance) === cloudInstance
+  );
+  const [isCheckingOAuth, setIsCheckingOAuth] = useState(false);
 
   const [form, setForm] = useState({
     user: "",
     password: "",
     token: "",
-    instance: auth.instance || "https://cloud.linkwarden.app",
+    instance: auth.instance || cloudInstance,
   });
 
   const [showInstanceField, setShowInstanceField] = useState(
-    form.instance !== "https://cloud.linkwarden.app"
+    form.instance !== cloudInstance
   );
+
+  const instance = form.instance.trim().replace(/\/+$/, "");
 
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
-      instance: auth.instance || "https://cloud.linkwarden.app",
+      instance: auth.instance || cloudInstance,
     }));
   }, [auth.instance]);
 
   useEffect(() => {
-    setShowInstanceField(form.instance !== "https://cloud.linkwarden.app");
+    setShowInstanceField(form.instance !== cloudInstance);
   }, [form.instance]);
 
   useEffect(() => {
@@ -50,6 +73,58 @@ export default function HomeScreen() {
       password: "",
     }));
   }, [method]);
+
+  useEffect(() => {
+    if (!instance) {
+      setAppleEnabled(false);
+      setGoogleEnabled(false);
+      return;
+    }
+
+    setAppleEnabled(Platform.OS === "ios" && instance === cloudInstance);
+    setGoogleEnabled(instance === cloudInstance);
+    setIsCheckingOAuth(true);
+    let active = true;
+    const timer = setTimeout(async () => {
+      try {
+        const [configRes, loginsRes] = await Promise.all([
+          fetch(`${instance}/api/v1/config`),
+          fetch(`${instance}/api/v1/logins`),
+        ]);
+
+        if (!active || !configRes.ok || !loginsRes.ok) return;
+
+        const config = ((await configRes.json())?.response ??
+          null) as Config | null;
+        const logins = await loginsRes.json().catch(() => null);
+        const versionOk = isAtLeastInstanceVersion(
+          config?.INSTANCE_VERSION,
+          "v2.15.0"
+        );
+        const hasApple =
+          logins?.buttonAuths?.some(
+            (b: { method?: string }) => b.method === "apple"
+          ) === true;
+        const hasGoogle =
+          logins?.buttonAuths?.some(
+            (b: { method?: string }) => b.method === "google"
+          ) === true;
+
+        if (active) {
+          setAppleEnabled(Platform.OS === "ios" && hasApple && versionOk);
+          setGoogleEnabled(hasGoogle && versionOk);
+        }
+      } catch {
+      } finally {
+        if (active) setIsCheckingOAuth(false);
+      }
+    }, 400);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [instance]);
 
   if (auth.status === "authenticated") {
     return <Redirect href="/dashboard" />;
@@ -65,7 +140,7 @@ export default function HomeScreen() {
               className="w-[120px] h-[120px] mx-auto"
             />
           </View>
-          <Text className="text-base-100 text-7xl font-bold ml-8">Login</Text>
+          <Text className="text-base-100 text-5xl font-bold ml-8">Login</Text>
           <View>
             <Text
               className="text-base-100 text-2xl mx-8 mt-3"
@@ -182,11 +257,46 @@ export default function HomeScreen() {
             >
               <Text className="text-white text-xl">Login</Text>
             </Button>
+            {appleEnabled && (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={
+                  AppleAuthentication.AppleAuthenticationButtonType.CONTINUE
+                }
+                buttonStyle={
+                  colorScheme === "dark"
+                    ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                    : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+                }
+                cornerRadius={8}
+                style={{ width: "100%", height: 48 }}
+                onPress={() => {
+                  if (isCheckingOAuth) return;
+                  signInWithApple(instance);
+                }}
+              />
+            )}
+            {googleEnabled && (
+              <GoogleSigninButton
+                size={GoogleSigninButton.Size.Wide}
+                color={
+                  colorScheme === "dark"
+                    ? GoogleSigninButton.Color.Light
+                    : GoogleSigninButton.Color.Dark
+                }
+                style={{ width: "100%", height: 48 }}
+                onPress={() => {
+                  if (isCheckingOAuth) return;
+                  signInWithGoogle(instance);
+                }}
+              />
+            )}
             <TouchableOpacity
               className="w-fit mx-auto"
-              onPress={() => SheetManager.show("support-sheet")}
+              onPress={() => router.replace("/register")}
             >
-              <Text className="text-neutral text-center w-fit">Need help?</Text>
+              <Text className="text-neutral text-center w-fit">
+                Don't have an account? Sign up
+              </Text>
             </TouchableOpacity>
           </SafeAreaView>
         </View>

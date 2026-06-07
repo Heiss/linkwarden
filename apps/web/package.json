@@ -1,6 +1,6 @@
 {
   "name": "@linkwarden/web",
-  "version": "v2.14.1",
+  "version": "v2.15.0",
   "main": "index.js",
   "repository": "https://github.com/linkwarden/linkwarden.git",
   "author": "Daniel31X13 <daniel31x13@gmail.com>",
@@ -13,7 +13,7 @@
     "lint": "next lint",
     "e2e": "playwright test e2e",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
-    "postinstall": "playwright install --with-deps chromium"
+    "postinstall": "test -n \"$IN_NIX_SHELL\" || playwright install --with-deps chromium"
   },
   "dependencies": {
     "@atlaskit/tree": "^8.8.7",

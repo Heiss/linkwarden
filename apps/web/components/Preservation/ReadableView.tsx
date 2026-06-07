@@ -12,6 +12,10 @@ import {
   LinkIncludingShortenedCollectionAndTags,
   ArchivedFormat,
 } from "@linkwarden/types/global";
+import {
+  readerViewCSS,
+  READER_VIEW_DEFAULTS,
+} from "@linkwarden/lib/readerViewStyles";
 import ClickAwayHandler from "@/components/ClickAwayHandler";
 import {
   useGetLinkHighlights,
@@ -24,6 +28,13 @@ import { Caveat } from "next/font/google";
 import { Bentham } from "next/font/google";
 import { Separator } from "../ui/separator";
 import { Button } from "../ui/button";
+
+function getYouTubeVideoId(url: string): string | null {
+  const match = url.match(
+    /(?:(?:www\.|m\.)?youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+  );
+  return match ? match[1] : null;
+}
 
 const caveat = Caveat({ subsets: ["latin"] });
 const bentham = Bentham({ subsets: ["latin"], weight: "400" });
@@ -89,8 +100,18 @@ export default function ReadableView({ link }: Props) {
     const containerEl = containerRef.current;
     if (!containerEl) return;
 
-    const containerRect = containerEl.getBoundingClientRect();
     const target = e.target as HTMLElement;
+
+    // Handle transcript timestamp clicks before highlight logic
+    if (videoId) {
+      const offsetEl = target.closest("[data-offset]") as HTMLElement | null;
+      if (offsetEl?.dataset.offset !== undefined) {
+        seekToTime(Number(offsetEl.dataset.offset));
+        return;
+      }
+    }
+
+    const containerRect = containerEl.getBoundingClientRect();
     const highlightId = Number(target.dataset.highlightId);
     const selection = window.getSelection();
 
@@ -287,7 +308,8 @@ export default function ReadableView({ link }: Props) {
 
   useEffect(() => {
     if (!user) return;
-    const readerViews = document.getElementsByClassName("reader-view");
+    const container = containerRef.current;
+    if (!container) return;
 
     const getFont = () => {
       if (user.readableFontFamily === "caveat") {
@@ -297,51 +319,22 @@ export default function ReadableView({ link }: Props) {
       } else return user.readableFontFamily;
     };
 
-    for (const view of Array.from(readerViews)) {
-      const paragraphs = view.getElementsByTagName("p");
-      for (const paragraph of Array.from(paragraphs)) {
-        paragraph.style.fontSize = user.readableFontSize || "18px";
-        paragraph.style.lineHeight = user.readableLineHeight || "1.8";
-      }
+    const pFontSize = user.readableFontSize || `${READER_VIEW_DEFAULTS.fontSize}px`;
+    const ratio = parseInt(pFontSize) / READER_VIEW_DEFAULTS.fontSize;
 
-      const paragraphToUserReadableFontSizeRatio =
-        parseInt(user.readableFontSize || "18") / 18;
-
-      const headers1 = view.getElementsByTagName("h1");
-      for (const header of Array.from(headers1)) {
-        header.style.fontSize =
-          35 * paragraphToUserReadableFontSizeRatio + "px";
-      }
-      const headers2 = view.getElementsByTagName("h2");
-      for (const header of Array.from(headers2)) {
-        header.style.fontSize =
-          30 * paragraphToUserReadableFontSizeRatio + "px";
-      }
-      const headers3 = view.getElementsByTagName("h3");
-      for (const header of Array.from(headers3)) {
-        header.style.fontSize =
-          26 * paragraphToUserReadableFontSizeRatio + "px";
-      }
-      const headers4 = view.getElementsByTagName("h4");
-      for (const header of Array.from(headers4)) {
-        header.style.fontSize =
-          21 * paragraphToUserReadableFontSizeRatio + "px";
-      }
-      const headers5 = view.getElementsByTagName("h5");
-      for (const header of Array.from(headers5)) {
-        header.style.fontSize =
-          18 * paragraphToUserReadableFontSizeRatio + "px";
-      }
-
-      (view as HTMLElement).style.fontFamily = `${getFont()}`;
-    }
+    container.style.setProperty("--rv-p-font-size", pFontSize);
+    container.style.setProperty("--rv-p-line-height", user.readableLineHeight || String(READER_VIEW_DEFAULTS.lineHeight));
+    container.style.setProperty("--rv-h1-font-size", READER_VIEW_DEFAULTS.h1Size * ratio + "px");
+    container.style.setProperty("--rv-h2-font-size", READER_VIEW_DEFAULTS.h2Size * ratio + "px");
+    container.style.setProperty("--rv-h3-font-size", READER_VIEW_DEFAULTS.h3Size * ratio + "px");
+    container.style.setProperty("--rv-h4-font-size", READER_VIEW_DEFAULTS.h4Size * ratio + "px");
+    container.style.setProperty("--rv-h5-font-size", READER_VIEW_DEFAULTS.h5Size * ratio + "px");
+    container.style.fontFamily = `${getFont()}`;
   }, [
     user?.theme,
     user?.readableFontFamily,
     user?.readableFontSize,
     user?.readableLineHeight,
-    highlightedHtml,
-    linkContent,
   ]);
 
   const handleHighlightSelection = async (
@@ -417,12 +410,108 @@ export default function ReadableView({ link }: Props) {
   };
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const lastHighlightedPRef = useRef<HTMLElement | null>(null);
+  const currentTimeMsRef = useRef(0);
+  const seekTargetMsRef = useRef<number | null>(null);
+
+  const videoId = link?.url ? getYouTubeVideoId(link.url) : null;
+  const [iframeSrc, setIframeSrc] = useState(
+    videoId
+      ? `https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1`
+      : ""
+  );
+
+  const updateTranscriptHighlight = (currentMs: number) => {
+    const container = document.getElementById("readable-view");
+    if (!container) return;
+
+    const spans = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-offset]")
+    );
+    if (spans.length === 0) return;
+
+    let activeSpan: HTMLElement | null = null;
+    for (const span of spans) {
+      if (Number(span.dataset.offset) <= currentMs) activeSpan = span;
+      else break;
+    }
+
+    const activeP = (activeSpan?.closest("p") as HTMLElement) ?? null;
+    if (activeP === lastHighlightedPRef.current) return;
+
+    if (lastHighlightedPRef.current) {
+      lastHighlightedPRef.current.style.backgroundColor = "";
+    }
+    if (activeP) {
+      activeP.style.backgroundColor = "oklch(var(--b3))";
+    }
+    lastHighlightedPRef.current = activeP;
+  };
+
+  // Re-apply active highlight after content re-renders (dangerouslySetInnerHTML wipes inline styles)
+  useEffect(() => {
+    lastHighlightedPRef.current = null;
+    updateTranscriptHighlight(currentTimeMsRef.current);
+  }, [highlightedHtml]);
+
+  // Subscribe to YouTube infoDelivery events to track playback position
+  useEffect(() => {
+    if (!videoId) return;
+    const handleMessage = (event: MessageEvent) => {
+      try {
+        const data =
+          typeof event.data === "string"
+            ? JSON.parse(event.data)
+            : event.data;
+        if (
+          data.event === "infoDelivery" &&
+          typeof data.info?.currentTime === "number"
+        ) {
+          const newMs = data.info.currentTime * 1000;
+          // After a seek, ignore stale events that are far from the target
+          // (YouTube often fires an initial event at t≈0 before the seek takes effect)
+          if (seekTargetMsRef.current !== null) {
+            if (Math.abs(newMs - seekTargetMsRef.current) > 3000) return;
+            seekTargetMsRef.current = null;
+          }
+          currentTimeMsRef.current = newMs;
+          updateTranscriptHighlight(currentTimeMsRef.current);
+        }
+      } catch {}
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [videoId]);
+
+  // Tell YouTube to send infoDelivery events after the iframe loads/reloads
+  const handleIframeLoad = () => {
+    iframeRef.current?.contentWindow?.postMessage(
+      JSON.stringify({ event: "listening", id: 1 }),
+      "*"
+    );
+  };
+
+  const seekToTime = (offsetMs: number) => {
+    if (!videoId) return;
+    const seconds = Math.floor(offsetMs / 1000);
+    // Immediately show the correct highlight so it's not cleared by a stale
+    // infoDelivery event (YouTube often emits currentTime≈0 when the iframe reloads)
+    seekTargetMsRef.current = offsetMs;
+    currentTimeMsRef.current = offsetMs;
+    updateTranscriptHighlight(offsetMs);
+    setIframeSrc(
+      `https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1&start=${seconds}&autoplay=1`
+    );
+  };
+
 
   return (
-    <div
-      ref={containerRef}
-      className={clsx(
-        "flex flex-col gap-3 items-start p-3 mx-auto bg-base-200 mt-5 relative",
+    <>
+      <style dangerouslySetInnerHTML={{ __html: readerViewCSS }} />
+      <div
+        className={clsx(
+        "mx-auto bg-base-200 mt-5",
         user?.readableLineWidth === "narrower"
           ? "max-w-screen-sm"
           : user?.readableLineWidth === "narrow"
@@ -436,6 +525,41 @@ export default function ReadableView({ link }: Props) {
                   : ""
       )}
     >
+      {videoId && (
+        <div className="sticky top-0 z-10 w-full bg-base-200 pb-2 pt-2">
+          <div className="relative w-full" style={{ paddingTop: "56.25%" }}>
+            <iframe
+              ref={iframeRef}
+              src={iframeSrc}
+              onLoad={handleIframeLoad}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              className="absolute inset-0 w-full h-full rounded-lg"
+            />
+          </div>
+          <div className="flex justify-end mt-1 px-1">
+            <button
+              onClick={() =>
+                lastHighlightedPRef.current?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                })
+              }
+              className="text-xs flex items-center gap-1 opacity-60 hover:opacity-100 duration-150"
+              title="Jump to current transcript position"
+            >
+              <i className="bi-arrow-down-circle" />
+              Jump to current
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div
+        ref={containerRef}
+        className="flex flex-col gap-3 items-start p-3 relative"
+      >
+
       <div className="reader-view">
         <h1>
           {unescapeString(link?.name || link?.description || link?.url || "")}
@@ -470,6 +594,7 @@ export default function ReadableView({ link }: Props) {
               <div
                 id="readable-view"
                 className="line-break px-1 reader-view read-only"
+                style={{ contentVisibility: "auto" }}
                 dangerouslySetInnerHTML={{ __html: highlightedHtml }}
               />
 
@@ -616,6 +741,8 @@ export default function ReadableView({ link }: Props) {
           <p className="text-center text-lg mt-2">{t("check_back_later")}</p>
         </div>
       )}
+      </div>
     </div>
+    </>
   );
 }
