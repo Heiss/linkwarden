@@ -1,0 +1,66 @@
+name: Migration Drift Check
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DATABASE_URL: postgresql://postgres:password@localhost:5432/linkwarden
+  SHADOW_DATABASE_URL: postgresql://postgres:password@localhost:5432/linkwarden_shadow
+
+jobs:
+  migration-drift:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable Yarn 4
+        run: |
+          sudo rm -f /usr/bin/yarn /usr/bin/yarnpkg || true
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
+      - name: Install dependencies
+        run: yarn workspaces focus @linkwarden/prisma
+
+      - name: Create databases
+        run: |
+          psql postgresql://postgres:password@localhost:5432/postgres \
+            -c "CREATE DATABASE linkwarden;" \
+            -c "CREATE DATABASE linkwarden_shadow;"
+
+      - name: Apply migrations
+        run: yarn workspace @linkwarden/prisma deploy
+
+      - name: Check for schema drift
+        run: |
+          yarn workspace @linkwarden/prisma exec prisma migrate diff \
+            --from-migrations . \
+            --to-schema-datamodel schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
+        working-directory: packages/prisma
