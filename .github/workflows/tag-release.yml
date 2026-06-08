@@ -16,6 +16,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Use a PAT (not the default GITHUB_TOKEN) so the tag push below
+          # triggers downstream workflows (release-container.yml). Tags pushed
+          # with GITHUB_TOKEN are deliberately ignored by GitHub Actions to
+          # prevent recursive runs. Reuses the existing repo-scoped PAT.
+          token: ${{ secrets.RENOVATE_TOKEN }}
 
       - name: Compute next release number
         id: next_tag
