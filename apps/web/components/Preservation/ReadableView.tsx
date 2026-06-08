@@ -492,6 +492,23 @@ export default function ReadableView({ link }: Props) {
     );
   };
 
+  // Open links inside the readable content in a new tab on left-click.
+  // (Plain navigation can be swallowed by the highlight mouse handling, so
+  // open the anchor explicitly. External archive links should not replace the
+  // reader anyway.)
+  const handleContentClick = (e: React.MouseEvent) => {
+    const anchor = (e.target as HTMLElement).closest(
+      "a"
+    ) as HTMLAnchorElement | null;
+    if (!anchor) return;
+
+    const href = anchor.getAttribute("href");
+    if (!href || href.startsWith("#")) return;
+
+    e.preventDefault();
+    window.open(anchor.href, "_blank", "noopener,noreferrer");
+  };
+
   const seekToTime = (offsetMs: number) => {
     if (!videoId) return;
     const seconds = Math.floor(offsetMs / 1000);
@@ -595,6 +612,7 @@ export default function ReadableView({ link }: Props) {
                 id="readable-view"
                 className="line-break px-1 reader-view read-only"
                 style={{ contentVisibility: "auto" }}
+                onClick={handleContentClick}
                 dangerouslySetInnerHTML={{ __html: highlightedHtml }}
               />
 
