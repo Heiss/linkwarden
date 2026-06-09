@@ -16,6 +16,8 @@ The shell provides: nodejs_22, corepack_22, chromium (for Playwright on NixOS), 
 
 **Important:** `flake.nix` pins nixpkgs to a stable channel (e.g. `nixos-25.05`). The `prisma-engines` package from nixpkgs **must match the major version of the `prisma` npm package** — mismatched versions cause the shell to point `PRISMA_QUERY_ENGINE_LIBRARY` to a path that doesn't exist. When upgrading the `prisma` npm package to a new major version, also update the `nixpkgs.url` in `flake.nix` to a channel that carries the matching `prisma-engines`, then run `nix flake update` to regenerate `flake.lock`. Renovate should **not** auto-update `flake.lock` independently of the npm prisma version.
 
+**Claude Code in the shell:** `claude-code` is an unfree package and is pulled from a separate `nixpkgs-unstable` input (not the pinned stable channel, which carries a stale version). `config.allowUnfree = true` is set on that import inside the flake, so no `NIXPKGS_ALLOW_UNFREE` env var or global nixpkgs config is needed. Because it's a Nix store install it cannot `claude update` itself — to bump it, run `nix flake update nixpkgs-unstable` (this updates only that input and leaves the prisma-pinned `nixpkgs` untouched), then commit the regenerated `flake.lock`.
+
 **Package manager: yarn 4.12.0 (Berry)**. Never use npm or pnpm.
 
 ## Commands

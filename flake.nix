@@ -7,13 +7,24 @@
     # When upgrading prisma npm to a new major, update this URL and run
     # `nix flake update` to regenerate flake.lock.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    # The pinned stable channel above carries an old claude-code (tied to the
+    # release date). We pull claude-code from unstable so it stays current,
+    # while everything else (notably prisma-engines) stays on the stable pin.
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        pkgs = import nixpkgs { inherit system; };
+        # claude-code is an unfree package. Setting config.allowUnfree here means
+        # the flake can install it without requiring NIXPKGS_ALLOW_UNFREE=1 in the
+        # environment. Sourced from unstable to get a recent version.
+        pkgs-unstable = import nixpkgs-unstable {
+          inherit system;
+          config.allowUnfree = true;
+        };
       in {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
@@ -26,6 +37,10 @@
             pkg-config
             # Prisma
             prisma-engines
+            # GitHub CLI
+            gh
+            # Claude Code (unfree; from unstable, enabled via config.allowUnfree)
+            pkgs-unstable.claude-code
           ];
 
           shellHook = ''
@@ -38,6 +53,7 @@
             mkdir -p "$HOME/.local/bin"
             corepack enable --install-directory "$HOME/.local/bin" 2>/dev/null || true
             export PATH="$HOME/.local/bin:$PATH"
+
             echo "Linkwarden dev shell ready. Run: yarn install"
           '';
         };
