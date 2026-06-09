@@ -3,9 +3,13 @@ name: Linkwarden Playwright Tests
 on:
   push:
     branches:
-      - main
       - qacomet/**
+  # Only run on PRs targeting `dev`. The dev->main promotion is mandatory and
+  # `dev` has already been tested, so re-running the suite for dev->main (and on
+  # push to `main`) would be redundant.
   pull_request:
+    branches:
+      - dev
   workflow_dispatch:
 
 env:
