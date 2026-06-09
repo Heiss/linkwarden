@@ -102,6 +102,10 @@ export default function ReadableView({ link }: Props) {
 
     const target = e.target as HTMLElement;
 
+    // Let clicks on links fall through to native navigation (target="_blank")
+    // instead of opening the highlight menu.
+    if (target.closest("a[href]")) return;
+
     // Handle transcript timestamp clicks before highlight logic
     if (videoId) {
       const offsetEl = target.closest("[data-offset]") as HTMLElement | null;
@@ -209,18 +213,46 @@ export default function ReadableView({ link }: Props) {
     };
   }
 
+  // Make in-article anchors open in a new tab natively. Relying on a JS click
+  // handler + window.open is unreliable: the browser's popup blocker can drop
+  // the window.open while preventDefault has already cancelled the navigation,
+  // so clicking a link does nothing. A native target="_blank" anchor is never
+  // popup-blocked. We also resolve relative hrefs against the article URL so
+  // links that were stored relative still point somewhere.
+  function prepareAnchors(container: HTMLElement, baseUrl?: string | null) {
+    const anchors = container.querySelectorAll<HTMLAnchorElement>("a[href]");
+    anchors.forEach((anchor) => {
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#")) return;
+
+      try {
+        anchor.setAttribute(
+          "href",
+          new URL(href, baseUrl || undefined).href
+        );
+      } catch {
+        // leave the original href untouched if it can't be resolved
+      }
+
+      anchor.setAttribute("target", "_blank");
+      anchor.setAttribute("rel", "noopener noreferrer");
+    });
+  }
+
   function getHighlightedHtml(
     htmlContent: string,
     highlights: Highlight[]
   ): string {
-    if (!htmlContent || !highlights || highlights.length === 0) {
+    if (!htmlContent) {
       return htmlContent;
     }
 
     const container = document.createElement("div");
     container.innerHTML = htmlContent;
 
-    const sortedHighlights = [...highlights].sort(
+    prepareAnchors(container, link?.url);
+
+    const sortedHighlights = [...(highlights || [])].sort(
       (a, b) => a.startOffset - b.startOffset
     );
 
@@ -492,23 +524,6 @@ export default function ReadableView({ link }: Props) {
     );
   };
 
-  // Open links inside the readable content in a new tab on left-click.
-  // (Plain navigation can be swallowed by the highlight mouse handling, so
-  // open the anchor explicitly. External archive links should not replace the
-  // reader anyway.)
-  const handleContentClick = (e: React.MouseEvent) => {
-    const anchor = (e.target as HTMLElement).closest(
-      "a"
-    ) as HTMLAnchorElement | null;
-    if (!anchor) return;
-
-    const href = anchor.getAttribute("href");
-    if (!href || href.startsWith("#")) return;
-
-    e.preventDefault();
-    window.open(anchor.href, "_blank", "noopener,noreferrer");
-  };
-
   const seekToTime = (offsetMs: number) => {
     if (!videoId) return;
     const seconds = Math.floor(offsetMs / 1000);
@@ -612,7 +627,6 @@ export default function ReadableView({ link }: Props) {
                 id="readable-view"
                 className="line-break px-1 reader-view read-only"
                 style={{ contentVisibility: "auto" }}
-                onClick={handleContentClick}
                 dangerouslySetInnerHTML={{ __html: highlightedHtml }}
               />
 
