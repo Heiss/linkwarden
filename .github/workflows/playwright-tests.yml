@@ -43,7 +43,7 @@ jobs:
   playwright-test-runner:
     strategy:
       matrix:
-        test_case: ['@login']
+        test_case: ['@login', '@reader-view']
     timeout-minutes: 20
     runs-on:
       - ubuntu-22.04
