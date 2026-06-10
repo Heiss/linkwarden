@@ -18,6 +18,11 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 ENV PRISMA_HIDE_UPDATE_MESSAGE=1
 
+# Stream package build/postinstall output into the image build log; otherwise
+# a failing postinstall (e.g. the playwright browser install) only leaves its
+# logs in a temp file inside the build container, which is unreadable from CI.
+ENV YARN_ENABLE_INLINE_BUILDS=true
+
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN mkdir /data
@@ -29,6 +34,8 @@ RUN corepack enable
 COPY ./.yarnrc.yml ./
 
 COPY ./apps/web/package.json ./apps/web/playwright.config.ts ./apps/web/
+
+COPY ./apps/web/scripts ./apps/web/scripts
 
 COPY ./apps/worker/package.json ./apps/worker/
 
