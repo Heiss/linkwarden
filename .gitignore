@@ -57,3 +57,10 @@ prisma/dev.db
 .turbo
 
 service-account-file.json
+
+# nix build symlink
+/result
+# python bytecode cache
+__pycache__/
+# claude code project-local config
+.claude/
