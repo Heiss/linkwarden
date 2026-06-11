@@ -28,13 +28,10 @@ import { Caveat } from "next/font/google";
 import { Bentham } from "next/font/google";
 import { Separator } from "../ui/separator";
 import { Button } from "../ui/button";
-
-function getYouTubeVideoId(url: string): string | null {
-  const match = url.match(
-    /(?:(?:www\.|m\.)?youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
-  );
-  return match ? match[1] : null;
-}
+import prepareReaderAnchors from "@/lib/client/prepareReaderAnchors";
+import YoutubeTranscriptPlayer, {
+  useYoutubeTranscriptPlayer,
+} from "./YoutubeTranscriptPlayer";
 
 const caveat = Caveat({ subsets: ["latin"] });
 const bentham = Bentham({ subsets: ["latin"], weight: "400" });
@@ -100,22 +97,15 @@ export default function ReadableView({ link }: Props) {
     const containerEl = containerRef.current;
     if (!containerEl) return;
 
+    const containerRect = containerEl.getBoundingClientRect();
     const target = e.target as HTMLElement;
 
     // Let clicks on links fall through to native navigation (target="_blank")
-    // instead of opening the highlight menu.
+    // and transcript timestamps seek the YouTube player instead of opening
+    // the highlight menu.
     if (target.closest("a[href]")) return;
+    if (youtubePlayer.handleTranscriptClick(target)) return;
 
-    // Handle transcript timestamp clicks before highlight logic
-    if (videoId) {
-      const offsetEl = target.closest("[data-offset]") as HTMLElement | null;
-      if (offsetEl?.dataset.offset !== undefined) {
-        seekToTime(Number(offsetEl.dataset.offset));
-        return;
-      }
-    }
-
-    const containerRect = containerEl.getBoundingClientRect();
     const highlightId = Number(target.dataset.highlightId);
     const selection = window.getSelection();
 
@@ -213,32 +203,6 @@ export default function ReadableView({ link }: Props) {
     };
   }
 
-  // Make in-article anchors open in a new tab natively. Relying on a JS click
-  // handler + window.open is unreliable: the browser's popup blocker can drop
-  // the window.open while preventDefault has already cancelled the navigation,
-  // so clicking a link does nothing. A native target="_blank" anchor is never
-  // popup-blocked. We also resolve relative hrefs against the article URL so
-  // links that were stored relative still point somewhere.
-  function prepareAnchors(container: HTMLElement, baseUrl?: string | null) {
-    const anchors = container.querySelectorAll<HTMLAnchorElement>("a[href]");
-    anchors.forEach((anchor) => {
-      const href = anchor.getAttribute("href");
-      if (!href || href.startsWith("#")) return;
-
-      try {
-        anchor.setAttribute(
-          "href",
-          new URL(href, baseUrl || undefined).href
-        );
-      } catch {
-        // leave the original href untouched if it can't be resolved
-      }
-
-      anchor.setAttribute("target", "_blank");
-      anchor.setAttribute("rel", "noopener noreferrer");
-    });
-  }
-
   function getHighlightedHtml(
     htmlContent: string,
     highlights: Highlight[]
@@ -250,7 +214,7 @@ export default function ReadableView({ link }: Props) {
     const container = document.createElement("div");
     container.innerHTML = htmlContent;
 
-    prepareAnchors(container, link?.url);
+    prepareReaderAnchors(container, link?.url);
 
     const sortedHighlights = [...(highlights || [])].sort(
       (a, b) => a.startOffset - b.startOffset
@@ -337,6 +301,8 @@ export default function ReadableView({ link }: Props) {
   const highlightedHtml = React.useMemo(() => {
     return getHighlightedHtml(linkContent, linkHighlights || []);
   }, [linkContent, linkHighlights]);
+
+  const youtubePlayer = useYoutubeTranscriptPlayer(link?.url, highlightedHtml);
 
   useEffect(() => {
     if (!user) return;
@@ -442,101 +408,6 @@ export default function ReadableView({ link }: Props) {
   };
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const lastHighlightedPRef = useRef<HTMLElement | null>(null);
-  const currentTimeMsRef = useRef(0);
-  const seekTargetMsRef = useRef<number | null>(null);
-
-  const videoId = link?.url ? getYouTubeVideoId(link.url) : null;
-  const [iframeSrc, setIframeSrc] = useState(
-    videoId
-      ? `https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1`
-      : ""
-  );
-
-  const updateTranscriptHighlight = (currentMs: number) => {
-    const container = document.getElementById("readable-view");
-    if (!container) return;
-
-    const spans = Array.from(
-      container.querySelectorAll<HTMLElement>("[data-offset]")
-    );
-    if (spans.length === 0) return;
-
-    let activeSpan: HTMLElement | null = null;
-    for (const span of spans) {
-      if (Number(span.dataset.offset) <= currentMs) activeSpan = span;
-      else break;
-    }
-
-    const activeP = (activeSpan?.closest("p") as HTMLElement) ?? null;
-    if (activeP === lastHighlightedPRef.current) return;
-
-    if (lastHighlightedPRef.current) {
-      lastHighlightedPRef.current.style.backgroundColor = "";
-    }
-    if (activeP) {
-      activeP.style.backgroundColor = "oklch(var(--b3))";
-    }
-    lastHighlightedPRef.current = activeP;
-  };
-
-  // Re-apply active highlight after content re-renders (dangerouslySetInnerHTML wipes inline styles)
-  useEffect(() => {
-    lastHighlightedPRef.current = null;
-    updateTranscriptHighlight(currentTimeMsRef.current);
-  }, [highlightedHtml]);
-
-  // Subscribe to YouTube infoDelivery events to track playback position
-  useEffect(() => {
-    if (!videoId) return;
-    const handleMessage = (event: MessageEvent) => {
-      try {
-        const data =
-          typeof event.data === "string"
-            ? JSON.parse(event.data)
-            : event.data;
-        if (
-          data.event === "infoDelivery" &&
-          typeof data.info?.currentTime === "number"
-        ) {
-          const newMs = data.info.currentTime * 1000;
-          // After a seek, ignore stale events that are far from the target
-          // (YouTube often fires an initial event at t≈0 before the seek takes effect)
-          if (seekTargetMsRef.current !== null) {
-            if (Math.abs(newMs - seekTargetMsRef.current) > 3000) return;
-            seekTargetMsRef.current = null;
-          }
-          currentTimeMsRef.current = newMs;
-          updateTranscriptHighlight(currentTimeMsRef.current);
-        }
-      } catch {}
-    };
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [videoId]);
-
-  // Tell YouTube to send infoDelivery events after the iframe loads/reloads
-  const handleIframeLoad = () => {
-    iframeRef.current?.contentWindow?.postMessage(
-      JSON.stringify({ event: "listening", id: 1 }),
-      "*"
-    );
-  };
-
-  const seekToTime = (offsetMs: number) => {
-    if (!videoId) return;
-    const seconds = Math.floor(offsetMs / 1000);
-    // Immediately show the correct highlight so it's not cleared by a stale
-    // infoDelivery event (YouTube often emits currentTime≈0 when the iframe reloads)
-    seekTargetMsRef.current = offsetMs;
-    currentTimeMsRef.current = offsetMs;
-    updateTranscriptHighlight(offsetMs);
-    setIframeSrc(
-      `https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1&start=${seconds}&autoplay=1`
-    );
-  };
-
 
   return (
     <>
@@ -557,35 +428,7 @@ export default function ReadableView({ link }: Props) {
                   : ""
       )}
     >
-      {videoId && (
-        <div className="sticky top-0 z-10 w-full bg-base-200 pb-2 pt-2">
-          <div className="relative w-full" style={{ paddingTop: "56.25%" }}>
-            <iframe
-              ref={iframeRef}
-              src={iframeSrc}
-              onLoad={handleIframeLoad}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              className="absolute inset-0 w-full h-full rounded-lg"
-            />
-          </div>
-          <div className="flex justify-end mt-1 px-1">
-            <button
-              onClick={() =>
-                lastHighlightedPRef.current?.scrollIntoView({
-                  behavior: "smooth",
-                  block: "center",
-                })
-              }
-              className="text-xs flex items-center gap-1 opacity-60 hover:opacity-100 duration-150"
-              title="Jump to current transcript position"
-            >
-              <i className="bi-arrow-down-circle" />
-              Jump to current
-            </button>
-          </div>
-        </div>
-      )}
+      <YoutubeTranscriptPlayer controller={youtubePlayer} />
 
       <div
         ref={containerRef}
