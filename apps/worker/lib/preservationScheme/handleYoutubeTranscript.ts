@@ -2,6 +2,7 @@ import { YoutubeTranscript } from "youtube-transcript";
 import { prisma } from "@linkwarden/prisma";
 import { createFile, readFile } from "@linkwarden/filesystem";
 import { Link } from "@linkwarden/prisma/client";
+import { ArchivalSettings } from "@linkwarden/types/global";
 import { generateText } from "ai";
 import { LanguageModelV2 } from "@ai-sdk/provider";
 import {
@@ -161,6 +162,42 @@ export async function generateAndSaveYoutubeDescription(
       data: { youtubeDescribed: true },
     });
   }
+}
+
+/**
+ * Pre-archival hook called from archiveHandler.ts before browser navigation.
+ * For YouTube links it disables the formats that don't make sense (screenshot,
+ * PDF, monolith — mutating archivalSettings in place) and archives the
+ * transcript as the readable format. Returns true when the transcript was
+ * archived, so the caller skips its own readability extraction. No-op (false)
+ * for non-YouTube links.
+ */
+export async function preArchiveYoutube(
+  link: Link,
+  user:
+    | {
+        youtubeDescriptionEnabled?: boolean | null;
+        youtubeDescriptionSystemPrompt?: string | null;
+      }
+    | null
+    | undefined,
+  archivalSettings: ArchivalSettings
+): Promise<boolean> {
+  if (!link.url || getYouTubeVideoId(link.url) === null) return false;
+
+  archivalSettings.archiveAsScreenshot = false;
+  archivalSettings.archiveAsPDF = false;
+  archivalSettings.archiveAsMonolith = false;
+
+  if (archivalSettings.archiveAsReadable && !link.readable) {
+    return await handleYoutubeTranscript(
+      link,
+      user?.youtubeDescriptionEnabled ?? false,
+      user?.youtubeDescriptionSystemPrompt ?? null
+    );
+  }
+
+  return false;
 }
 
 const handleYoutubeTranscript = async (

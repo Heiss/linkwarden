@@ -69,6 +69,18 @@ This repository is a **downstream fork** of [linkwarden/linkwarden](https://gith
 - **Avoid modifying `packages/` shared libraries** unless strictly necessary. Changes there affect the entire monorepo and conflict surface is high.
 - **Duplicate helper functions rather than exporting/importing them across files** when the source file is upstream-owned. For example, `getAIModel()` is intentionally re-implemented inside `handleYoutubeTranscript.ts` rather than imported from `autoTagLink.ts` — this keeps both files independently mergeable.
 
+### Fork-owned modules (safe to edit freely)
+
+These files exist only in this fork and carry the substance of local features; the upstream files that call them carry only one-line imports/calls:
+
+- `apps/worker/lib/preservationScheme/handleYoutubeTranscript.ts` — transcript archival + `preArchiveYoutube()` (the single call site in `archiveHandler.ts`)
+- `apps/worker/workers/autoDescribeYoutubeLinks.ts` — background description worker
+- `apps/web/components/Preservation/YoutubeTranscriptPlayer.tsx` — inline player hook + component used by `ReadableView.tsx`
+- `apps/web/lib/client/prepareReaderAnchors.ts` — reader-view link `target="_blank"` fix used by `ReadableView.tsx`
+- `apps/web/components/YoutubeDescriptionSettings.tsx` — settings hook + UI used by `pages/settings/preference.tsx`
+- `apps/web/lib/api/youtubeDescription.ts` — user-update fields + `youtubeDescribed` reset used by `updateUserById.ts`
+- `packages/lib/youtubeDescriptionSchema.ts` — zod fields spread into `UpdateUserSchema`
+
 ### Database migrations
 
 Prisma applies migrations in timestamp order. Upstream continuously adds new migration files. Any local migration file committed with a fixed timestamp can end up out-of-order or conflict with an upstream migration that touches the same table — causing drift errors on the next merge.
