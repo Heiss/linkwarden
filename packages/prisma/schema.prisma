@@ -50,12 +50,12 @@ model User {
   accessTokens            AccessToken[]
   subscriptions           Subscription?
   linksRouteTo            LinksRouteTo          @default(ORIGINAL)
-  aiTaggingMethod                  AiTaggingMethod       @default(DISABLED)
-  aiPredefinedTags                 String[]              @default([])
-  aiTagExistingLinks               Boolean               @default(false)
-  youtubeDescriptionEnabled        Boolean               @default(false)
-  youtubeDescriptionSystemPrompt   String?
-  youtubeDescribeExistingLinks     Boolean               @default(false)
+  aiTaggingMethod         AiTaggingMethod       @default(DISABLED)
+  aiPredefinedTags        String[]              @default([])
+  aiTagExistingLinks      Boolean               @default(false)
+  youtubeDescriptionEnabled      Boolean        @default(false)
+  youtubeDescriptionSystemPrompt String?
+  youtubeDescribeExistingLinks   Boolean        @default(false)
   theme                   Theme                 @default(dark)
   readableFontFamily      String?               @default("sans-serif")
   readableFontSize        String?               @default("20px")
@@ -189,9 +189,9 @@ model Link {
   readable        String?
   monolith        String?
   clientSide      Boolean     @default(false)
-  aiTagged          Boolean     @default(false)
-  youtubeDescribed  Boolean     @default(false)
-  metaDescription   String?
+  aiTagged        Boolean     @default(false)
+  youtubeDescribed Boolean    @default(false)
+  metaDescription String?
   indexVersion    Int?
   lastPreserved   DateTime?
   importDate      DateTime?
