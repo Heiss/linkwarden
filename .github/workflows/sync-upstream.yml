@@ -6,16 +6,23 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
+  actions: write
 
 env:
   UPSTREAM: linkwarden/linkwarden
+  AUTORESOLVE_BRANCH: sync-upstream-autoresolved
 
 jobs:
   sync-upstream:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
       - name: Find existing sync PR or open a new one
         id: pr
         env:
@@ -51,6 +58,7 @@ jobs:
           echo "number=$number" >> "$GITHUB_OUTPUT"
 
       - name: Merge if it applies cleanly and checks pass
+        id: merge
         if: steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,9 +67,119 @@ jobs:
           repo="${{ github.repository }}"
           status=$(gh pr view "$number" --repo "$repo" --json mergeStateStatus --jq '.mergeStateStatus')
           echo "PR #$number mergeStateStatus=$status"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
 
           if [ "$status" = "CLEAN" ]; then
             gh pr merge "$number" --repo "$repo" --merge
+
+            # A conflict-free sync supersedes any pending auto-resolved merge
+            arnum=$(gh pr list --repo "$repo" --base dev --head "${{ env.AUTORESOLVE_BRANCH }}" \
+              --state open --json number --jq '.[0].number // empty')
+            if [ -n "$arnum" ]; then
+              gh pr close "$arnum" --repo "$repo" --delete-branch \
+                --comment "Superseded: the upstream sync merged cleanly without needing auto-resolution."
+            fi
           else
             echo "Not ready to merge yet (status=$status); leaving PR #$number open for manual review"
           fi
+
+      # When the sync PR has conflicts (DIRTY), try to resolve them with the
+      # recorded/trained rerere cache. The result is pushed to a bot branch
+      # and PR'd; because pushes with GITHUB_TOKEN don't trigger workflows,
+      # the checks are dispatched explicitly and the merge happens on a later
+      # run of this workflow, gated on those checks being green. The bot never
+      # pushes to dev directly — a manual local resolution pushed to dev
+      # simply makes the bot PR obsolete.
+      - name: Auto-resolve conflicts with rerere
+        if: steps.pr.outputs.number != '' && steps.merge.outputs.status == 'DIRTY'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repo="${{ github.repository }}"
+          branch="${{ env.AUTORESOLVE_BRANCH }}"
+          sync_pr="${{ steps.pr.outputs.number }}"
+          required_checks=("fork-footprint" "migration-drift" "playwright-test-runner (@login)" "playwright-test-runner (@reader-view)")
+
+          git fetch --quiet "https://github.com/${{ env.UPSTREAM }}.git" dev
+          upstream_sha=$(git rev-parse FETCH_HEAD)
+
+          prnum=$(gh pr list --repo "$repo" --base dev --head "$branch" \
+            --state open --json number --jq '.[0].number // empty')
+
+          # If an up-to-date auto-resolved PR already exists, evaluate its
+          # dispatched checks and merge when they're all green.
+          if [ -n "$prnum" ]; then
+            head_sha=$(gh pr view "$prnum" --repo "$repo" --json headRefOid --jq .headRefOid)
+            git fetch --quiet origin "$branch" || true
+            if git merge-base --is-ancestor "$upstream_sha" "$head_sha" 2>/dev/null; then
+              json=$(gh api "repos/$repo/commits/$head_sha/check-runs?per_page=100")
+              all_green=yes
+              any_failed=no
+              for c in "${required_checks[@]}"; do
+                concl=$(jq -r --arg n "$c" \
+                  '[.check_runs[] | select(.name==$n)] | sort_by(.completed_at // "") | last | .conclusion // "pending"' \
+                  <<<"$json")
+                echo "check '$c': $concl"
+                case "$concl" in
+                  success) ;;
+                  failure|cancelled|timed_out|action_required) all_green=no; any_failed=yes ;;
+                  *) all_green=no ;;
+                esac
+              done
+              if [ "$all_green" = yes ]; then
+                echo "All required checks green; merging auto-resolved sync PR #$prnum"
+                gh pr merge "$prnum" --repo "$repo" --merge --delete-branch
+              elif [ "$any_failed" = yes ]; then
+                echo "Checks failed on PR #$prnum; leaving it open for manual review"
+              else
+                echo "Checks still pending on PR #$prnum; re-evaluating on the next run"
+              fi
+              exit 0
+            fi
+            echo "Existing auto-resolved PR #$prnum is stale (missing current upstream tip); rebuilding"
+          fi
+
+          # (Re)build the auto-resolved merge on top of current dev
+          set +e
+          bash scripts/sync-upstream-autoresolve.sh 2>&1 | tee /tmp/autoresolve.log
+          code=${PIPESTATUS[0]}
+          set -e
+
+          case "$code" in
+            0)
+              git push -f origin "HEAD:refs/heads/$branch"
+              if [ -z "$prnum" ]; then
+                body="Automated merge of upstream \`dev\` with conflicts resolved by the recorded rerere cache (see \`.rr-cache/\` and CLAUDE.md)."
+                body+=$'\n\n'
+                body+="Checks are dispatched explicitly; the sync workflow merges this PR automatically once they all pass. Closing this PR and resolving manually on \`dev\` is always safe — the bot never touches \`dev\` directly."
+                prnum=$(gh api "repos/$repo/pulls" \
+                  -f title="Sync upstream (conflicts auto-resolved via rerere)" \
+                  -f body="$body" \
+                  -f head="$branch" \
+                  -f base="dev" \
+                  --jq '.number')
+              fi
+              for wf in fork-footprint.yml migration-drift.yml playwright-tests.yml; do
+                gh workflow run "$wf" --repo "$repo" --ref "$branch" \
+                  || echo "warning: could not dispatch $wf"
+              done
+              echo "Auto-resolved merge pushed to PR #$prnum; merge happens on a later run once checks pass."
+              ;;
+            2)
+              files=$(grep '^UNRESOLVED: ' /tmp/autoresolve.log | sed 's/^UNRESOLVED: /- /' || true)
+              marker="<!-- sync-autoresolve-status -->"
+              body=$(printf '%s\nrerere could not auto-resolve all conflicts in this sync. Files needing manual resolution:\n\n%s\n\nResolve locally and push the merge to `dev` (the nix dev shell has rerere enabled and shares its cache via `.rr-cache/`, so each distinct conflict only ever needs resolving once).' "$marker" "$files")
+              last=$(gh pr view "$sync_pr" --repo "$repo" --json comments \
+                --jq '[.comments[] | select(.body | contains("sync-autoresolve-status"))] | last | .body // ""')
+              if [ "$last" != "$body" ]; then
+                gh pr comment "$sync_pr" --repo "$repo" --body "$body"
+              fi
+              ;;
+            3)
+              echo "Nothing left to merge; done."
+              ;;
+            *)
+              echo "Auto-resolve script failed with exit code $code" >&2
+              exit 1
+              ;;
+          esac
