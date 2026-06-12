@@ -81,6 +81,22 @@ These files exist only in this fork and carry the substance of local features; t
 - `apps/web/lib/api/youtubeDescription.ts` — user-update fields + `youtubeDescribed` reset used by `updateUserById.ts`
 - `packages/lib/youtubeDescriptionSchema.ts` — zod fields spread into `UpdateUserSchema`
 
+### Enforcement: fork footprint check
+
+The rules above are enforced mechanically — they don't rely on anyone remembering them:
+
+- `.github/fork-footprint-budget.tsv` declares every upstream-owned file the fork modifies, with a maximum added/deleted line count vs the upstream merge-base.
+- `scripts/check-fork-footprint.sh` (CI: `.github/workflows/fork-footprint.yml`, runs on every PR) fails when an upstream-owned file is modified without a budget entry or beyond its budget. Files that exist only in the fork are never checked.
+- To run it locally (diffs the working tree, so it catches uncommitted mistakes): `bash scripts/check-fork-footprint.sh`
+
+Consequences in practice:
+
+- Running `prisma format` on `schema.prisma` re-aligns upstream lines and shows up as deletions — `schema.prisma` is budgeted with **0 deletions**, so CI blocks it. Don't raise that budget; revert the re-alignment instead.
+- A new inline edit to an upstream file fails CI until it is either moved into a fork-owned module (preferred) or its budget entry is added/raised in the same PR — making every increase in conflict surface an explicit, reviewed decision.
+- Lockfiles (`yarn.lock`, `flake.lock`) are exempt: they're machine-generated and merge conflicts there are resolved by regenerating.
+
+The nix dev shell also enables `git rerere` (repo-local), so a merge conflict in the remaining inline spots only needs to be resolved once — git replays the recorded resolution on subsequent upstream merges.
+
 ### Database migrations
 
 Prisma applies migrations in timestamp order. Upstream continuously adds new migration files. Any local migration file committed with a fixed timestamp can end up out-of-order or conflict with an upstream migration that touches the same table — causing drift errors on the next merge.

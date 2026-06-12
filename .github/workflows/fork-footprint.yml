@@ -1,0 +1,26 @@
+# Fork-owned workflow (see CLAUDE.md "Downstream Fork Strategy").
+# Fails any PR whose diff vs the upstream merge-base modifies an upstream-owned
+# file beyond the budgets declared in .github/fork-footprint-budget.tsv.
+name: Fork Footprint Check
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fork-footprint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check fork footprint against upstream
+        run: bash scripts/check-fork-footprint.sh
