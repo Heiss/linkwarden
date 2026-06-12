@@ -95,7 +95,14 @@ Consequences in practice:
 - A new inline edit to an upstream file fails CI until it is either moved into a fork-owned module (preferred) or its budget entry is added/raised in the same PR — making every increase in conflict surface an explicit, reviewed decision.
 - Lockfiles (`yarn.lock`, `flake.lock`) are exempt: they're machine-generated and merge conflicts there are resolved by regenerating.
 
-The nix dev shell also enables `git rerere` (repo-local), so a merge conflict in the remaining inline spots only needs to be resolved once — git replays the recorded resolution on subsequent upstream merges.
+### Upstream sync auto-resolution (rerere)
+
+Merge conflicts with upstream only ever need to be resolved by a human **once**; after that they are replayed automatically, both locally and in CI:
+
+- The nix dev shell enables `git rerere` and symlinks `.git/rr-cache` to the tracked `.rr-cache/` directory, so local conflict resolutions become committable files (commit them when they appear after a merge) and resolutions merged from others apply locally.
+- The daily sync workflow (`.github/workflows/sync-upstream.yml`) auto-merges conflict-free upstream syncs as before. When the sync PR has conflicts, it now runs `scripts/sync-upstream-autoresolve.sh`: seeds rerere from `.rr-cache/`, additionally re-learns resolutions by replaying recent merge commits from history (so even uncommitted resolutions are recovered), and attempts the merge.
+- A fully auto-resolved merge is pushed to the bot branch `sync-upstream-autoresolved` and opened as a PR. Checks (fork-footprint, migration-drift, Playwright) are dispatched explicitly — pushes made with the Actions token don't trigger workflows on their own — and a later workflow run merges the PR only when all of them are green.
+- If rerere can't resolve everything, the workflow comments the unresolved file list on the sync PR and leaves it for manual local resolution. The bot **never pushes to `dev` directly**: resolving manually and pushing first always wins, and just makes the bot PR obsolete (it gets closed/superseded automatically).
 
 ### Database migrations
 

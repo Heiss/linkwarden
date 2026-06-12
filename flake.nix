@@ -56,7 +56,20 @@
 
             # Upstream sync merges conflict in the same few inline spots;
             # rerere records each resolution once and replays it on later merges.
+            # The cache is shared through the repo: .rr-cache/ is tracked, and
+            # .git/rr-cache is symlinked to it so local resolutions show up as
+            # committable files and resolutions merged from others apply here.
+            if [ -d .git ] && [ ! -L .git/rr-cache ]; then
+              mkdir -p .rr-cache
+              if [ -d .git/rr-cache ]; then
+                cp -R .git/rr-cache/. .rr-cache/ 2>/dev/null || true
+                rm -rf .git/rr-cache
+              fi
+              ln -s ../.rr-cache .git/rr-cache
+            fi
             git config rerere.enabled true 2>/dev/null || true
+            # keep recorded resolutions ~forever (git gc would prune after 60 days)
+            git config gc.rerereResolved 3650 2>/dev/null || true
 
             echo "Linkwarden dev shell ready. Run: yarn install"
           '';
