@@ -1,0 +1,29 @@
+# Fork footprint budget (see CLAUDE.md "Downstream Fork Strategy").
+#
+# Every upstream-owned file this fork modifies must be listed here with the
+# maximum allowed diff vs the upstream merge-base, as:
+#   <path> <TAB> <max added lines> <TAB> <max deleted lines>
+# scripts/check-fork-footprint.sh (CI: fork-footprint.yml) fails any PR that
+# modifies an undeclared upstream file or exceeds a budget.
+#
+# Raising a number here is allowed but must be a conscious, reviewed change —
+# prefer moving code into a fork-owned module instead (keeps upstream merges
+# clean). Deletions in schema.prisma are budgeted at 0 on purpose: fork fields
+# must stay purely additive, and `prisma format` re-alignment must never be
+# committed.
+.github/workflows/playwright-tests.yml	6	2
+.github/workflows/release-container.yml	3	0
+.gitignore	8	1
+apps/web/components/Preservation/PreservationContent.tsx	1	3
+apps/web/components/Preservation/ReadableView.tsx	26	4
+apps/web/lib/api/controllers/users/userId/updateUserById.ts	7	0
+apps/web/package.json	1	1
+apps/web/pages/settings/preference.tsx	10	1
+apps/web/public/locales/en/common.json	5	0
+apps/worker/lib/archiveHandler.ts	9	1
+apps/worker/package.json	1	0
+apps/worker/worker.ts	2	0
+docker-compose.yml	2	2
+Dockerfile	7	0
+packages/lib/schemaValidation.ts	2	0
+packages/prisma/schema.prisma	4	0
