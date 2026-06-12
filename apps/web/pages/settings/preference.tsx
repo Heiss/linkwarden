@@ -26,6 +26,9 @@ import {
 } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { NextPageWithLayout } from "../_app";
+import YoutubeDescriptionSettings, {
+  useYoutubeDescriptionSettings,
+} from "@/components/YoutubeDescriptionSettings";
 
 const Page: NextPageWithLayout = () => {
   const { t } = useTranslation();
@@ -72,12 +75,7 @@ const Page: NextPageWithLayout = () => {
   const [aiTagExistingLinks, setAiTagExistingLinks] = useState<boolean>(
     account.aiTagExistingLinks ?? false
   );
-  const [youtubeDescriptionEnabled, setYoutubeDescriptionEnabled] =
-    useState<boolean>(account.youtubeDescriptionEnabled ?? false);
-  const [youtubeDescriptionSystemPrompt, setYoutubeDescriptionSystemPrompt] =
-    useState<string>(account.youtubeDescriptionSystemPrompt ?? "");
-  const [youtubeDescribeExistingLinks, setYoutubeDescribeExistingLinks] =
-    useState<boolean>(account.youtubeDescribeExistingLinks ?? false);
+  const youtubeSettings = useYoutubeDescriptionSettings(account);
   const [hasArchiveTagChanges, setHasArchiveTagChanges] = useState(false);
   const { data: config } = useConfig();
 
@@ -97,13 +95,6 @@ const Page: NextPageWithLayout = () => {
       setAiTaggingMethod(account.aiTaggingMethod);
       setAiPredefinedTags(account.aiPredefinedTags);
       setAiTagExistingLinks(account.aiTagExistingLinks ?? false);
-      setYoutubeDescriptionEnabled(account.youtubeDescriptionEnabled ?? false);
-      setYoutubeDescriptionSystemPrompt(
-        account.youtubeDescriptionSystemPrompt ?? ""
-      );
-      setYoutubeDescribeExistingLinks(
-        account.youtubeDescribeExistingLinks ?? false
-      );
     }
   }, [account]);
 
@@ -146,12 +137,7 @@ const Page: NextPageWithLayout = () => {
         aiPredefinedTags || [],
         account.aiPredefinedTags || []
       ) ||
-      youtubeDescriptionEnabled !==
-        (account.youtubeDescriptionEnabled ?? false) ||
-      youtubeDescriptionSystemPrompt !==
-        (account.youtubeDescriptionSystemPrompt ?? "") ||
-      youtubeDescribeExistingLinks !==
-        (account.youtubeDescribeExistingLinks ?? false));
+      youtubeSettings.hasChanges);
 
   const hasArchivePreferenceChanges =
     !!account?.id &&
@@ -179,9 +165,7 @@ const Page: NextPageWithLayout = () => {
         ...baseUserPayload(),
         aiTaggingMethod,
         aiTagExistingLinks,
-        youtubeDescriptionEnabled,
-        youtubeDescriptionSystemPrompt: youtubeDescriptionSystemPrompt || null,
-        youtubeDescribeExistingLinks,
+        ...youtubeSettings.payload,
       };
 
       if (aiPredefinedTags !== undefined) {
@@ -457,45 +441,7 @@ const Page: NextPageWithLayout = () => {
               />
             </div>
 
-            <div className="mt-5 mb-2">
-              <Checkbox
-                label={t("youtube_description_enabled")}
-                state={youtubeDescriptionEnabled}
-                onClick={() =>
-                  setYoutubeDescriptionEnabled(!youtubeDescriptionEnabled)
-                }
-              />
-              <p className="text-neutral text-sm pl-5 mb-3">
-                {t("youtube_description_enabled_desc")}
-              </p>
-              <div
-                className={`pl-5 ${!youtubeDescriptionEnabled ? "opacity-50" : ""}`}
-              >
-                <p className="text-sm mb-1">{t("youtube_description_system_prompt")}</p>
-                <textarea
-                  className="textarea textarea-bordered w-full max-w-screen-sm text-sm font-mono resize-y min-h-[80px]"
-                  disabled={!youtubeDescriptionEnabled}
-                  placeholder={t("youtube_description_system_prompt_placeholder")}
-                  value={youtubeDescriptionSystemPrompt}
-                  onChange={(e) =>
-                    setYoutubeDescriptionSystemPrompt(e.target.value)
-                  }
-                />
-              </div>
-            </div>
-            <div
-              className={`mb-3 ${!youtubeDescriptionEnabled ? "opacity-50" : ""}`}
-            >
-              <Checkbox
-                label={t("youtube_describe_existing_links")}
-                state={youtubeDescribeExistingLinks}
-                onClick={() =>
-                  youtubeDescriptionEnabled &&
-                  setYoutubeDescribeExistingLinks(!youtubeDescribeExistingLinks)
-                }
-                disabled={!youtubeDescriptionEnabled}
-              />
-            </div>
+            <YoutubeDescriptionSettings controller={youtubeSettings} />
 
             <Button
               onClick={saveAiSection}

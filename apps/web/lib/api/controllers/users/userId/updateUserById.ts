@@ -5,6 +5,10 @@ import { removeFile, createFile, createFolder } from "@linkwarden/filesystem";
 import sendChangeEmailVerificationRequest from "@/lib/api/sendChangeEmailVerificationRequest";
 import { i18n } from "next-i18next.config";
 import { UpdateUserSchema } from "@linkwarden/lib/schemaValidation";
+import {
+  youtubeDescriptionUserFields,
+  resetYoutubeDescribedIfEnabled,
+} from "@/lib/api/youtubeDescription";
 
 const emailEnabled =
   process.env.EMAIL_FROM && process.env.EMAIL_SERVER ? true : false;
@@ -215,9 +219,7 @@ export default async function updateUserById(
       aiTaggingMethod: data.aiTaggingMethod,
       aiPredefinedTags: data.aiPredefinedTags,
       aiTagExistingLinks: data.aiTagExistingLinks,
-      youtubeDescriptionEnabled: data.youtubeDescriptionEnabled,
-      youtubeDescriptionSystemPrompt: data.youtubeDescriptionSystemPrompt,
-      youtubeDescribeExistingLinks: data.youtubeDescribeExistingLinks,
+      ...youtubeDescriptionUserFields(data),
       locale: i18n.locales.includes(data.locale || "") ? data.locale : "en",
       archiveAsScreenshot: data.archiveAsScreenshot,
       archiveAsMonolith: data.archiveAsMonolith,
@@ -244,25 +246,7 @@ export default async function updateUserById(
     },
   });
 
-  // When the user first enables "describe existing links", reset youtubeDescribed
-  // on their YouTube links so the worker picks them up
-  if (
-    data.youtubeDescribeExistingLinks === true &&
-    !user?.youtubeDescribeExistingLinks
-  ) {
-    await prisma.link.updateMany({
-      where: {
-        createdById: userId,
-        youtubeDescribed: true,
-        readable: { not: null },
-        OR: [
-          { url: { contains: "youtube.com" } },
-          { url: { contains: "youtu.be" } },
-        ],
-      },
-      data: { youtubeDescribed: false },
-    });
-  }
+  await resetYoutubeDescribedIfEnabled(userId, data, user);
 
   const {
     password,

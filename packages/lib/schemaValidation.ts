@@ -6,6 +6,7 @@ import {
   Theme,
 } from "@linkwarden/prisma/client";
 import { number, z } from "zod";
+import { YoutubeDescriptionUserSchemaFields } from "./youtubeDescriptionSchema";
 
 // const stringField = z.string({
 //   errorMap: (e) => ({
@@ -85,9 +86,7 @@ export const UpdateUserSchema = () => {
     aiTaggingMethod: z.enum(AiTaggingMethod).optional(),
     aiPredefinedTags: z.array(z.string().max(20).trim()).max(20).optional(),
     aiTagExistingLinks: z.boolean().optional(),
-    youtubeDescriptionEnabled: z.boolean().optional(),
-    youtubeDescriptionSystemPrompt: z.string().max(2000).nullish(),
-    youtubeDescribeExistingLinks: z.boolean().optional(),
+    ...YoutubeDescriptionUserSchemaFields,
     locale: z.string().max(20).optional(),
     isPrivate: z.boolean().optional(),
     preventDuplicateLinks: z.boolean().optional(),

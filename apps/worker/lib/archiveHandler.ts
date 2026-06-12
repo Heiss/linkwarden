@@ -10,9 +10,7 @@ import handleArchivePreview from "./preservationScheme/handleArchivePreview";
 import handleScreenshotAndPdf from "./preservationScheme/handleScreenshotAndPdf";
 import imageHandler from "./preservationScheme/imageHandler";
 import pdfHandler from "./preservationScheme/pdfHandler";
-import handleYoutubeTranscript, {
-  getYouTubeVideoId,
-} from "./preservationScheme/handleYoutubeTranscript";
+import { preArchiveYoutube } from "./preservationScheme/handleYoutubeTranscript";
 import { LinkWithCollectionOwnerAndTags } from "@linkwarden/types/global";
 import { isArchivalTag } from "@linkwarden/lib/isArchivalTag";
 import { ArchivalSettings } from "@linkwarden/types/global";
@@ -129,22 +127,12 @@ export default async function archiveHandler(
           await pdfHandler(link);
           return;
         } else if (link.url) {
-          // YouTube: fetch transcript before browser navigation
-          const isYouTube = getYouTubeVideoId(link.url) !== null;
-          let transcriptArchived = false;
-          if (isYouTube) {
-            // Screenshot, PDF, and monolith don't make sense for YouTube
-            archivalSettings.archiveAsScreenshot = false;
-            archivalSettings.archiveAsPDF = false;
-            archivalSettings.archiveAsMonolith = false;
-            if (archivalSettings.archiveAsReadable && !link.readable) {
-              transcriptArchived = await handleYoutubeTranscript(
-              link,
-              user?.youtubeDescriptionEnabled ?? false,
-              user?.youtubeDescriptionSystemPrompt ?? null
-            );
-            }
-          }
+          // YouTube: archive transcript instead of page formats (no-op otherwise)
+          const transcriptArchived = await preArchiveYoutube(
+            link,
+            user,
+            archivalSettings
+          );
 
           await page.goto(link.url, { waitUntil: "domcontentloaded" });
 
@@ -188,7 +176,7 @@ export default async function archiveHandler(
           // Preview
           if (!link.preview) await handleArchivePreview(link, page);
 
-          // Readability (skip for YouTube if transcript was already archived)
+          // Readability
           if (archivalSettings.archiveAsReadable && !link.readable && !transcriptArchived)
             await handleReadability(content, link);
 

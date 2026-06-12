@@ -69,6 +69,41 @@ This repository is a **downstream fork** of [linkwarden/linkwarden](https://gith
 - **Avoid modifying `packages/` shared libraries** unless strictly necessary. Changes there affect the entire monorepo and conflict surface is high.
 - **Duplicate helper functions rather than exporting/importing them across files** when the source file is upstream-owned. For example, `getAIModel()` is intentionally re-implemented inside `handleYoutubeTranscript.ts` rather than imported from `autoTagLink.ts` — this keeps both files independently mergeable.
 
+### Fork-owned modules (safe to edit freely)
+
+These files exist only in this fork and carry the substance of local features; the upstream files that call them carry only one-line imports/calls:
+
+- `apps/worker/lib/preservationScheme/handleYoutubeTranscript.ts` — transcript archival + `preArchiveYoutube()` (the single call site in `archiveHandler.ts`)
+- `apps/worker/workers/autoDescribeYoutubeLinks.ts` — background description worker
+- `apps/web/components/Preservation/YoutubeTranscriptPlayer.tsx` — inline player hook + component used by `ReadableView.tsx`
+- `apps/web/lib/client/prepareReaderAnchors.ts` — reader-view link `target="_blank"` fix used by `ReadableView.tsx`
+- `apps/web/components/YoutubeDescriptionSettings.tsx` — settings hook + UI used by `pages/settings/preference.tsx`
+- `apps/web/lib/api/youtubeDescription.ts` — user-update fields + `youtubeDescribed` reset used by `updateUserById.ts`
+- `packages/lib/youtubeDescriptionSchema.ts` — zod fields spread into `UpdateUserSchema`
+
+### Enforcement: fork footprint check
+
+The rules above are enforced mechanically — they don't rely on anyone remembering them:
+
+- `.github/fork-footprint-budget.tsv` declares every upstream-owned file the fork modifies, with a maximum added/deleted line count vs the upstream merge-base.
+- `scripts/check-fork-footprint.sh` (CI: `.github/workflows/fork-footprint.yml`, runs on every PR) fails when an upstream-owned file is modified without a budget entry or beyond its budget. Files that exist only in the fork are never checked.
+- To run it locally (diffs the working tree, so it catches uncommitted mistakes): `bash scripts/check-fork-footprint.sh`
+
+Consequences in practice:
+
+- Running `prisma format` on `schema.prisma` re-aligns upstream lines and shows up as deletions — `schema.prisma` is budgeted with **0 deletions**, so CI blocks it. Don't raise that budget; revert the re-alignment instead.
+- A new inline edit to an upstream file fails CI until it is either moved into a fork-owned module (preferred) or its budget entry is added/raised in the same PR — making every increase in conflict surface an explicit, reviewed decision.
+- Lockfiles (`yarn.lock`, `flake.lock`) are exempt: they're machine-generated and merge conflicts there are resolved by regenerating.
+
+### Upstream sync auto-resolution (rerere)
+
+Merge conflicts with upstream only ever need to be resolved by a human **once**; after that they are replayed automatically, both locally and in CI:
+
+- The nix dev shell enables `git rerere` and symlinks `.git/rr-cache` to the tracked `.rr-cache/` directory, so local conflict resolutions become committable files (commit them when they appear after a merge) and resolutions merged from others apply locally.
+- The daily sync workflow (`.github/workflows/sync-upstream.yml`) auto-merges conflict-free upstream syncs as before. When the sync PR has conflicts, it now runs `scripts/sync-upstream-autoresolve.sh`: seeds rerere from `.rr-cache/`, additionally re-learns resolutions by replaying recent merge commits from history (so even uncommitted resolutions are recovered), and attempts the merge.
+- A fully auto-resolved merge is pushed to the bot branch `sync-upstream-autoresolved` and opened as a PR. Checks (fork-footprint, migration-drift, Playwright) are dispatched explicitly — pushes made with the Actions token don't trigger workflows on their own — and a later workflow run merges the PR only when all of them are green.
+- If rerere can't resolve everything, the workflow comments the unresolved file list on the sync PR and leaves it for manual local resolution. The bot **never pushes to `dev` directly**: resolving manually and pushing first always wins, and just makes the bot PR obsolete (it gets closed/superseded automatically).
+
 ### Database migrations
 
 Prisma applies migrations in timestamp order. Upstream continuously adds new migration files. Any local migration file committed with a fixed timestamp can end up out-of-order or conflict with an upstream migration that touches the same table — causing drift errors on the next merge.
