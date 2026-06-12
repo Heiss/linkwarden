@@ -54,6 +54,10 @@
             corepack enable --install-directory "$HOME/.local/bin" 2>/dev/null || true
             export PATH="$HOME/.local/bin:$PATH"
 
+            # Upstream sync merges conflict in the same few inline spots;
+            # rerere records each resolution once and replays it on later merges.
+            git config rerere.enabled true 2>/dev/null || true
+
             echo "Linkwarden dev shell ready. Run: yarn install"
           '';
         };
