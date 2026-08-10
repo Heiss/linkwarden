@@ -80,3 +80,34 @@ jobs:
           git tag -a "${{ steps.tag.outputs.tag }}" \
             -m "Fork release ${{ steps.tag.outputs.tag }} (upstream ${{ steps.tag.outputs.base }})"
           git push origin "${{ steps.tag.outputs.tag }}"
+
+      # A pushed tag is not a Release — without this the Releases page stays
+      # empty and there is nowhere to see what a version actually contains.
+      - name: Publish the GitHub release
+        if: steps.check.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          base="${{ steps.tag.outputs.base }}"
+          version="${tag#v}"
+          minor=$(cut -d. -f1,2 <<<"$version")
+          image="ghcr.io/${{ github.repository_owner }}/linkwarden"
+
+          # Newest fork release before this one, to diff the changelog against.
+          prev=$(git tag --list | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' \
+            | grep -vx "$tag" | sort -V | tail -n1)
+
+          notes=$(mktemp)
+          {
+            printf 'Fork build of upstream [`%s`](https://github.com/linkwarden/linkwarden/releases/tag/%s).\n\n' "$base" "$base"
+            printf '**Container image**\n\n```\n%s:%s\n```\n\n' "$image" "$version"
+            printf 'The floating tags `%s` and `latest` follow the newest release.\n' "$minor"
+            if [ -n "$prev" ] && git merge-base --is-ancestor "$prev" HEAD 2>/dev/null; then
+              printf '\n**Fork changes since %s**\n\n' "$prev"
+              git log --no-merges --pretty='- %s' "$prev..HEAD"
+            fi
+          } >"$notes"
+
+          gh release create "$tag" --repo "${{ github.repository }}" \
+            --title "$tag" --notes-file "$notes" --verify-tag
