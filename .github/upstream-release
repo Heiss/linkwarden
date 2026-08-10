@@ -1,0 +1,9 @@
+# The upstream release this fork is currently rebased onto.
+#
+# Single source of truth for the sync bot, the fork-footprint check and the
+# release version. Never edit by hand except to intentionally move the fork to
+# a different upstream release — scripts/sync-upstream-rebase.sh updates it as
+# part of the rebase it performs.
+#
+# Must be a tag that exists in linkwarden/linkwarden.
+v2.16.0

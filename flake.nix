@@ -59,22 +59,33 @@
             corepack enable --install-directory "$HOME/.local/bin" 2>/dev/null || true
             export PATH="$HOME/.local/bin:$PATH"
 
-            # Upstream sync merges conflict in the same few inline spots;
-            # rerere records each resolution once and replays it on later merges.
-            # The cache is shared through the repo: .rr-cache/ is tracked, and
-            # .git/rr-cache is symlinked to it so local resolutions show up as
-            # committable files and resolutions merged from others apply here.
-            if [ -d .git ] && [ ! -L .git/rr-cache ]; then
-              mkdir -p .rr-cache
-              if [ -d .git/rr-cache ]; then
-                cp -R .git/rr-cache/. .rr-cache/ 2>/dev/null || true
-                rm -rf .git/rr-cache
+            # Upstream syncs conflict in the same few inline spots; rerere
+            # records each resolution once and replays it on later rebases. The
+            # cache is shared through the repo (.rr-cache/ is tracked): seed
+            # git's live cache from it on shell entry, and run
+            # `scripts/rerere-cache.sh save` after resolving something to make
+            # the resolution committable. (A symlink instead of a copy breaks:
+            # the sync rebase checks out trees that predate .rr-cache/.)
+            if [ -d .git ]; then
+              [ -L .git/rr-cache ] && rm -f .git/rr-cache
+              git config rerere.enabled true 2>/dev/null || true
+              git config rerere.autoUpdate true 2>/dev/null || true
+              # keep recorded resolutions ~forever (git gc would prune after 60 days)
+              git config gc.rerereResolved 3650 2>/dev/null || true
+              bash scripts/rerere-cache.sh load >/dev/null 2>&1 || true
+
+              # The fork releases under the same version numbers as upstream
+              # (fork v2.16.0 == upstream v2.16.0 + our commits), so upstream's
+              # tags must not land in refs/tags/* and clobber ours. Mirror them
+              # into their own namespace instead; see scripts/upstream-release.sh.
+              if git config remote.upstream.url >/dev/null 2>&1; then
+                git config remote.upstream.tagOpt --no-tags
+                git config --replace-all remote.upstream.fetch \
+                  "+refs/heads/*:refs/remotes/upstream/*"
+                git config --add remote.upstream.fetch \
+                  "+refs/tags/*:refs/upstream/tags/*"
               fi
-              ln -s ../.rr-cache .git/rr-cache
             fi
-            git config rerere.enabled true 2>/dev/null || true
-            # keep recorded resolutions ~forever (git gc would prune after 60 days)
-            git config gc.rerereResolved 3650 2>/dev/null || true
 
             echo "Linkwarden dev shell ready. Run: yarn install"
           '';

@@ -7,9 +7,10 @@
 #   - an upstream-owned file is modified but not declared, or
 #   - a file's diff vs upstream exceeds its declared budget.
 #
-# "Upstream-owned" means the file exists at the merge-base with upstream/dev.
-# Files that exist only in the fork (new modules, workflows, CLAUDE.md, ...)
-# are never checked — they can't conflict with upstream.
+# "Upstream-owned" means the file exists in the upstream release the fork is
+# rebased onto (.github/upstream-release). Files that exist only in the fork
+# (new modules, workflows, CLAUDE.md, ...) are never checked — they can't
+# conflict with upstream.
 #
 # This is what makes the fork rules forget-proof: an accidental
 # `prisma format` (which re-aligns upstream lines in schema.prisma) shows up
@@ -18,11 +19,13 @@
 # in a reviewed diff.
 #
 # Usage: scripts/check-fork-footprint.sh
-#   UPSTREAM_URL / UPSTREAM_BRANCH env vars override the defaults.
+#   UPSTREAM_URL env var overrides the default upstream remote.
 set -euo pipefail
 
-UPSTREAM_URL="${UPSTREAM_URL:-https://github.com/linkwarden/linkwarden.git}"
-UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-dev}"
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=scripts/upstream-release.sh
+source "$here/upstream-release.sh"
+
 BUDGET_FILE="$(git rev-parse --show-toplevel)/.github/fork-footprint-budget.tsv"
 
 # Lockfiles are machine-generated; conflicts there are resolved by
@@ -35,10 +38,13 @@ if [ ! -f "$BUDGET_FILE" ]; then
   exit 1
 fi
 
-git fetch --quiet "$UPSTREAM_URL" "$UPSTREAM_BRANCH"
-upstream_ref=$(git rev-parse FETCH_HEAD)
-base=$(git merge-base HEAD "$upstream_ref")
-echo "Comparing working tree against merge-base with upstream/$UPSTREAM_BRANCH: $base"
+fetch_upstream_tags
+release=$(current_upstream_release)
+base=$(upstream_release_sha "$release") || {
+  echo "Upstream release $release (.github/upstream-release) not found upstream" >&2
+  exit 1
+}
+echo "Comparing working tree against upstream $release: $base"
 echo
 
 failures=0
