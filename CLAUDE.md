@@ -101,6 +101,24 @@ Consequences in practice:
 - A new inline edit to an upstream file fails CI until it is either moved into a fork-owned module (preferred) or its budget entry is added/raised in the same PR — making every increase in conflict surface an explicit, reviewed decision.
 - Lockfiles (`yarn.lock`, `flake.lock`) are exempt: they're machine-generated and merge conflicts there are resolved by regenerating.
 
+### The automatic chain, end to end
+
+An upstream release turns into a published fork image with no manual step:
+
+```
+upstream tags v2.17.0
+  └─ sync-upstream.yml (nightly, or manually)
+       rebases the fork's commits onto v2.17.0, bumps .github/upstream-release
+       └─ pushes bot branch sync-upstream-release + dispatches the checks
+            └─ checks green ──(workflow_run)──> sync-upstream.yml re-enters
+                 └─ force-pushes dev, triggers release.yml
+                      └─ mirrors dev to main, pushes tag v2.17.0 (PAT)
+                           └─ release-container.yml builds and pushes
+                                ghcr.io/heiss/linkwarden:2.17.0, :2.17, :latest
+```
+
+It stops and asks for a human in exactly two cases: a conflict rerere has never seen (an issue is opened, nothing is pushed), and a check that fails on the rebased result (the PR stays open, untouched).
+
 ### Upstream syncs: release-tracking + rebase
 
 The fork never follows upstream's `dev`. Following a moving tip means constantly chasing half-finished migrations; a release is a unit upstream considers tested.
@@ -108,7 +126,8 @@ The fork never follows upstream's `dev`. Following a moving tip means constantly
 - **`.github/upstream-release`** records which upstream release the fork currently sits on (e.g. `v2.16.0`). It is the single source of truth for the sync bot, the fork-footprint check and the release version. `scripts/sync-upstream-rebase.sh` updates it as part of the rebase — don't hand-edit it except to deliberately move to a different release.
 - **Upstream tags live in their own ref namespace, `refs/upstream/tags/*`.** The fork publishes releases under the *same* version numbers as upstream (see below), so upstream's tags must not land in `refs/tags/*`. The dev shell configures the `upstream` remote for this; `scripts/upstream-release.sh` provides the shared helpers (`fetch_upstream_tags`, `current_upstream_release`, `latest_upstream_release`).
 - **The daily sync workflow** (`.github/workflows/sync-upstream.yml`) compares the recorded release against the highest stable upstream tag (pre-releases like `-rc.1` are ignored). If a newer one exists it runs `scripts/sync-upstream-rebase.sh`, which rebases the fork's commits onto the new tag with rerere replaying known conflicts, then bumps `.github/upstream-release`.
-- The rebased history is force-pushed to the bot branch `sync-upstream-release` and opened as a PR. Checks (fork-footprint, migration-drift, Playwright) are dispatched explicitly — pushes made with the Actions token don't trigger workflows on their own. A later run of the workflow **force-pushes that history onto `dev`** once all of them are green, and then triggers a release.
+- The rebased history is force-pushed to the bot branch `sync-upstream-release` and opened as a PR. Checks (fork-footprint, migration-drift, Playwright) are dispatched explicitly — pushes made with the Actions token don't trigger workflows on their own. The workflow re-enters on those checks completing (`workflow_run`), **force-pushes that history onto `dev`** once all of them are green, and triggers a release.
+- While a sync PR is in flight the workflow will not rebuild the branch — rebuilding would cancel the running checks and re-dispatch them forever. A PR whose checks *failed* is likewise left alone; that needs a human.
 - The force-push is guarded by `--force-with-lease` against the exact `dev` commit the rebase was built from (recorded in the PR body). **Pushing your own work to `dev` always wins** — it just makes the bot branch stale, and the next run rebuilds it.
 - If rerere can't resolve everything, the workflow opens an issue listing the unresolved files, with the commands to resolve it once locally. Nothing is pushed.
 

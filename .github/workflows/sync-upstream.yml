@@ -14,6 +14,17 @@ name: Sync upstream release
 on:
   schedule:
     - cron: "0 5 * * *"
+  # The checks this sync is gated on are dispatched by an earlier run of this
+  # workflow, so nothing would notice when they finish. Re-entering here on
+  # their completion closes the loop: an upstream release lands and ships
+  # within minutes of its checks going green instead of waiting for the next
+  # nightly run.
+  workflow_run:
+    workflows:
+      - "Fork Footprint Check"
+      - "Migration Drift Check"
+      - "Linkwarden Playwright Tests"
+    types: [completed]
   workflow_dispatch:
     inputs:
       target:
@@ -33,6 +44,11 @@ env:
 jobs:
   sync-upstream:
     runs-on: ubuntu-latest
+    # Those check workflows also run on every ordinary PR; only their runs on
+    # the bot branch say anything about a pending sync.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.head_branch == 'sync-upstream-release'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,10 +98,14 @@ jobs:
           done
 
           if [ "$all_green" != yes ]; then
+            # Either way this sync is not ours to touch: rebuilding the branch
+            # would cancel the in-flight checks and re-dispatch them forever,
+            # and a failed check needs a human, not another attempt.
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
             if [ "$any_failed" = yes ]; then
               echo "Checks failed on PR #$prnum; leaving it open for manual review"
             else
-              echo "Checks still pending on PR #$prnum; re-evaluating on the next run"
+              echo "Checks still pending on PR #$prnum; re-evaluating when they finish"
             fi
             exit 0
           fi
@@ -108,7 +128,9 @@ jobs:
 
       - name: Work out which upstream release we should be on
         id: plan
-        if: steps.land.outputs.landed != 'true'
+        if: >-
+          steps.land.outputs.landed != 'true' &&
+          steps.land.outputs.blocked != 'true'
         run: |
           bash scripts/upstream-release.sh | tee -a "$GITHUB_OUTPUT"
           echo "target=${{ inputs.target }}" >> "$GITHUB_OUTPUT"
@@ -120,6 +142,7 @@ jobs:
         id: rebase
         if: >-
           steps.land.outputs.landed != 'true' &&
+          steps.land.outputs.blocked != 'true' &&
           (steps.plan.outputs.behind == 'true' || inputs.target != '')
         run: |
           git checkout -B "$SYNC_BRANCH"
