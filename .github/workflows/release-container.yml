@@ -20,6 +20,45 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needs the full tag list to work out the floating tags
+
+      # Fork release tags carry the upstream version they are built on
+      # (v2.16.0, then v2.16.0.1 for a fork-only rebuild of the same base), so
+      # deployments can pin an exact build or follow a floating tag:
+      #   2.16.0.1 exact   2.16.0 newest build of that base
+      #   2.16     newest patch of that minor   latest  newest release overall
+      # A float is only published when this tag really is the newest in its
+      # bucket, so re-running an old tag can't move `latest` backwards.
+      - name: Work out the image tags for this release
+        id: imagetags
+        run: |
+          ref="${GITHUB_REF_NAME}"
+          {
+            echo "tags<<EOF"
+            if [[ "$ref" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
+              maj="${BASH_REMATCH[1]}"; min="${BASH_REMATCH[2]}"
+              pat="${BASH_REMATCH[3]}"; build="${BASH_REMATCH[5]}"
+              echo "type=raw,value=$ref"
+              echo "type=raw,value=${ref#v}"
+              releases=$(git tag --list | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' | sort -V)
+              newest() { grep -E "$1" <<<"$releases" | tail -n1; }
+              if [ -n "$build" ] && [ "$(newest "^v$maj\.$min\.$pat(\.|\$)")" = "$ref" ]; then
+                echo "type=raw,value=$maj.$min.$pat"
+              fi
+              if [ "$(newest "^v$maj\.$min\.")" = "$ref" ]; then
+                echo "type=raw,value=$maj.$min"
+              fi
+              if [ "$(tail -n1 <<<"$releases")" = "$ref" ]; then
+                echo "type=raw,value=latest"
+              fi
+            else
+              # Manual dispatch or a legacy tag: publish it under its own name only.
+              echo "type=raw,value=$ref"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Image tags:"; sed -n '/^tags<<EOF$/,/^EOF$/p' "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -39,9 +78,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=tag
-            type=raw,value=latest
+          tags: ${{ steps.imagetags.outputs.tags }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6

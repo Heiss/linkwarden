@@ -12,7 +12,12 @@
 # must stay purely additive, and `prisma format` re-alignment must never be
 # committed.
 .github/workflows/playwright-tests.yml	6	2
-.github/workflows/release-container.yml	3	0
+# release-container.yml: the fork publishes floating deployment tags
+# (2.16.0 / 2.16 / latest) computed from the full tag list, which upstream's
+# single `type=ref,event=tag` doesn't cover. Kept inline rather than in a
+# fork-owned workflow so there is exactly one thing building the image;
+# upstream rarely touches this file.
+.github/workflows/release-container.yml	40	0
 .gitignore	8	1
 apps/web/components/Preservation/PreservationContent.tsx	1	3
 apps/web/components/Preservation/ReadableView.tsx	46	24

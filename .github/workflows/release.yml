@@ -1,0 +1,82 @@
+name: Release
+
+# Cuts a fork release from the current `dev`: mirrors it to `main` and pushes a
+# version tag, which is what triggers the container build.
+#
+# Versioning: the fork publishes under the *same* number as the upstream
+# release it is built on (recorded in .github/upstream-release), because it
+# ships from its own registry and there is nothing to disambiguate against.
+# So "upstream v2.16.0 + our commits" is released as `v2.16.0`. A second
+# release on the same upstream base — a fork-only fix, no upstream bump — adds
+# a fourth component: `v2.16.0.1`, `v2.16.0.2`, ...
+#
+# Runs automatically after the sync bot lands a new upstream release on `dev`,
+# and manually (workflow_dispatch) for fork-only releases.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+          # A PAT, not GITHUB_TOKEN: tags pushed with GITHUB_TOKEN deliberately
+          # do not trigger workflows, and the whole point of the tag is to
+          # trigger release-container.yml.
+          token: ${{ secrets.RENOVATE_TOKEN }}
+
+      - name: Check there is something to release
+        id: check
+        run: |
+          git fetch --quiet origin main || true
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main 2>/dev/null || echo none)" ]; then
+            echo "main already points at dev; nothing to release"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute the release tag
+        id: tag
+        if: steps.check.outputs.release == 'true'
+        run: |
+          base=$(bash -c 'source scripts/upstream-release.sh; current_upstream_release')
+          case "$base" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Unexpected upstream release '$base' in .github/upstream-release" >&2; exit 1 ;;
+          esac
+
+          if ! git rev-parse -q --verify "refs/tags/$base" >/dev/null; then
+            tag="$base"
+          else
+            # Already released this upstream base; add/bump the fork counter.
+            last=$(git tag --list "$base.[0-9]*" | sort -V | tail -n1)
+            n=$([ -n "$last" ] && echo "${last##*.}" || echo 0)
+            tag="$base.$((n + 1))"
+          fi
+          echo "Releasing $tag (upstream base $base)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Mirror dev to main and push the tag
+        if: steps.check.outputs.release == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # `dev` is rebased onto each upstream release, so `main` is a mirror
+          # of it rather than a branch it merges into. Past release tags keep
+          # pointing at the exact commits their images were built from.
+          git push --force origin "HEAD:refs/heads/main"
+
+          git tag -a "${{ steps.tag.outputs.tag }}" \
+            -m "Fork release ${{ steps.tag.outputs.tag }} (upstream ${{ steps.tag.outputs.base }})"
+          git push origin "${{ steps.tag.outputs.tag }}"

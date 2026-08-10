@@ -58,7 +58,13 @@ All dev commands require a `.env` file at the repo root (copy from `.env.sample`
 
 ## Downstream Fork Strategy
 
-This repository is a **downstream fork** of [linkwarden/linkwarden](https://github.com/linkwarden/linkwarden). Upstream changes are merged regularly via Renovate bot processes. Every change made here must be designed to survive those merges with minimal conflicts.
+This repository is a **downstream fork** of [linkwarden/linkwarden](https://github.com/linkwarden/linkwarden). It tracks upstream **releases**, not upstream's `dev` tip, and the fork's own commits are **rebased on top** of the release it tracks. So `dev` is always exactly:
+
+```
+<upstream release tag>  +  the fork's commits
+```
+
+Every change made here must be designed to survive those rebases with minimal conflicts.
 
 ### Rules for making changes
 
@@ -85,7 +91,7 @@ These files exist only in this fork and carry the substance of local features; t
 
 The rules above are enforced mechanically — they don't rely on anyone remembering them:
 
-- `.github/fork-footprint-budget.tsv` declares every upstream-owned file the fork modifies, with a maximum added/deleted line count vs the upstream merge-base.
+- `.github/fork-footprint-budget.tsv` declares every upstream-owned file the fork modifies, with a maximum added/deleted line count vs the tracked upstream release.
 - `scripts/check-fork-footprint.sh` (CI: `.github/workflows/fork-footprint.yml`, runs on every PR) fails when an upstream-owned file is modified without a budget entry or beyond its budget. Files that exist only in the fork are never checked.
 - To run it locally (diffs the working tree, so it catches uncommitted mistakes): `bash scripts/check-fork-footprint.sh`
 
@@ -95,35 +101,61 @@ Consequences in practice:
 - A new inline edit to an upstream file fails CI until it is either moved into a fork-owned module (preferred) or its budget entry is added/raised in the same PR — making every increase in conflict surface an explicit, reviewed decision.
 - Lockfiles (`yarn.lock`, `flake.lock`) are exempt: they're machine-generated and merge conflicts there are resolved by regenerating.
 
-### Upstream sync auto-resolution (rerere)
+### Upstream syncs: release-tracking + rebase
 
-Merge conflicts with upstream only ever need to be resolved by a human **once**; after that they are replayed automatically, both locally and in CI:
+The fork never follows upstream's `dev`. Following a moving tip means constantly chasing half-finished migrations; a release is a unit upstream considers tested.
 
-- The nix dev shell enables `git rerere` and symlinks `.git/rr-cache` to the tracked `.rr-cache/` directory, so local conflict resolutions become committable files (commit them when they appear after a merge) and resolutions merged from others apply locally.
-- The daily sync workflow (`.github/workflows/sync-upstream.yml`) auto-merges conflict-free upstream syncs as before. When the sync PR has conflicts, it now runs `scripts/sync-upstream-autoresolve.sh`: seeds rerere from `.rr-cache/`, additionally re-learns resolutions by replaying recent merge commits from history (so even uncommitted resolutions are recovered), and attempts the merge.
-- A fully auto-resolved merge is pushed to the bot branch `sync-upstream-autoresolved` and opened as a PR. Checks (fork-footprint, migration-drift, Playwright) are dispatched explicitly — pushes made with the Actions token don't trigger workflows on their own — and a later workflow run merges the PR only when all of them are green.
-- If rerere can't resolve everything, the workflow comments the unresolved file list on the sync PR and leaves it for manual local resolution. The bot **never pushes to `dev` directly**: resolving manually and pushing first always wins, and just makes the bot PR obsolete (it gets closed/superseded automatically).
+- **`.github/upstream-release`** records which upstream release the fork currently sits on (e.g. `v2.16.0`). It is the single source of truth for the sync bot, the fork-footprint check and the release version. `scripts/sync-upstream-rebase.sh` updates it as part of the rebase — don't hand-edit it except to deliberately move to a different release.
+- **Upstream tags live in their own ref namespace, `refs/upstream/tags/*`.** The fork publishes releases under the *same* version numbers as upstream (see below), so upstream's tags must not land in `refs/tags/*`. The dev shell configures the `upstream` remote for this; `scripts/upstream-release.sh` provides the shared helpers (`fetch_upstream_tags`, `current_upstream_release`, `latest_upstream_release`).
+- **The daily sync workflow** (`.github/workflows/sync-upstream.yml`) compares the recorded release against the highest stable upstream tag (pre-releases like `-rc.1` are ignored). If a newer one exists it runs `scripts/sync-upstream-rebase.sh`, which rebases the fork's commits onto the new tag with rerere replaying known conflicts, then bumps `.github/upstream-release`.
+- The rebased history is force-pushed to the bot branch `sync-upstream-release` and opened as a PR. Checks (fork-footprint, migration-drift, Playwright) are dispatched explicitly — pushes made with the Actions token don't trigger workflows on their own. A later run of the workflow **force-pushes that history onto `dev`** once all of them are green, and then triggers a release.
+- The force-push is guarded by `--force-with-lease` against the exact `dev` commit the rebase was built from (recorded in the PR body). **Pushing your own work to `dev` always wins** — it just makes the bot branch stale, and the next run rebuilds it.
+- If rerere can't resolve everything, the workflow opens an issue listing the unresolved files, with the commands to resolve it once locally. Nothing is pushed.
+
+To move the fork onto a specific release by hand (e.g. to skip ahead, or after resolving conflicts):
+
+```bash
+git checkout dev
+bash scripts/sync-upstream-rebase.sh v2.17.0   # stops on unknown conflicts
+# ...resolve, git add, git rebase --continue...
+bash scripts/rerere-cache.sh save              # make the resolution committable
+git add .rr-cache .github/upstream-release && git commit
+git push --force-with-lease origin dev
+```
+
+Conflicts with upstream only ever need to be resolved by a human **once**. `git rerere` records each resolution; `.rr-cache/` is the tracked, shared copy of that cache. The dev shell seeds git's live cache from it on shell entry, and `scripts/rerere-cache.sh save` copies newly recorded resolutions back so they can be committed. (It's a copy, not a symlink: the sync rebase replays fork commits whose trees predate `.rr-cache/`, which makes a symlink dangle mid-rebase and aborts the rebase.)
+
+### Releases and versioning
+
+- **The fork releases under the same version number as the upstream release it is built on.** "Upstream v2.16.0 + our commits" ships as `v2.16.0`. The fork publishes from its own registry (`ghcr.io/heiss/linkwarden`), so there is nothing to disambiguate against, and the tag immediately says which tested upstream release is inside.
+- A second release on the *same* upstream base — a fork-only fix, no upstream bump — appends a fourth component: `v2.16.0.1`, `v2.16.0.2`, …
+- `.github/workflows/release.yml` cuts a release: it mirrors `dev` onto `main` (force-push — `dev` is rebased, so `main` is a mirror, not a merge target), computes the next tag from `.github/upstream-release`, and pushes it with a PAT so the container build actually triggers. It runs automatically after the sync bot lands a new upstream release, and manually (`workflow_dispatch`) for fork-only releases.
+- `.github/workflows/release-container.yml` publishes, per release, the exact tag plus the floating tags that make deployment simple:
+
+  | image tag | points at |
+  | --- | --- |
+  | `2.16.0.1` | that exact build |
+  | `2.16.0` | newest fork build on upstream 2.16.0 |
+  | `2.16` | newest patch within 2.16 |
+  | `latest` | newest release overall |
+
+  A float is only published when the tag really is the newest in its bucket, so rebuilding an old tag can never move `latest` backwards.
+- Past release tags keep pointing at the exact commits their images were built from, even though `dev` and `main` are force-pushed.
 
 ### Database migrations
 
-Prisma applies migrations in timestamp order. Upstream continuously adds new migration files. Any local migration file committed with a fixed timestamp can end up out-of-order or conflict with an upstream migration that touches the same table — causing drift errors on the next merge.
+Prisma applies migrations in filename (timestamp) order, and upstream keeps adding new ones. Because the fork rebases onto upstream releases, a fork migration created today can end up sorting *before* upstream migrations that arrive later.
 
-**The rule: never commit local migration files. Only commit `schema.prisma` changes.**
+**Fork migrations must be purely additive** — new columns/models only, no drops or renames of upstream-owned columns. An additive migration is order-independent in practice (the tables it touches were created by upstream's initial migrations), so sorting before a newer upstream migration is harmless.
+
+**Never rename or re-timestamp a migration that has already shipped in a release.** Prisma tracks applied migrations by directory name; renaming one makes every existing deployment try to re-apply it and fail. `20260607125525_add_youtube_description_fields` is frozen for this reason, even though upstream migrations now sort after it.
 
 Workflow for a local schema change:
-1. Edit `packages/prisma/schema.prisma` with the new field/model (additive only — no drops or renames of upstream-owned columns).
-2. Run `yarn prisma:generate` so the Prisma client reflects the new schema locally.
-3. Commit only the `schema.prisma` change. Do not commit any generated migration file.
+1. Edit `packages/prisma/schema.prisma` with the new field/model (additive only).
+2. Run `yarn prisma:dev --name <feature_name>` to generate the migration, then `yarn prisma:generate`.
+3. Commit both the `schema.prisma` change and the generated migration.
 
-When merging upstream and deploying:
-1. Merge upstream (brings in their new migration files and any schema updates).
-2. Re-apply local `schema.prisma` additions on top if there were conflicts.
-3. Run `yarn prisma:dev --name <feature_name>` to generate a fresh migration file with the correct current timestamp, appended after all upstream migrations.
-4. Commit the newly generated migration file.
-
-This ensures local schema changes are always stamped with a timestamp that comes after whatever upstream has at the time of the merge, and the migration history stays clean.
-
-A CI workflow (`.github/workflows/migration-drift.yml`) enforces this: it runs `prisma migrate diff --from-migrations --to-schema-datamodel --exit-code` on every PR and fails if `schema.prisma` has fields not covered by the committed migration files. This is the automated reminder — a PR with uncommitted schema changes will be blocked until the migration is generated and committed.
+A CI workflow (`.github/workflows/migration-drift.yml`) enforces the last point: it runs `prisma migrate diff --from-migrations --to-schema-datamodel --exit-code` on every PR and fails if `schema.prisma` has fields not covered by the committed migration files. That check also runs on every bot sync PR, so an upstream release that conflicts with a fork migration blocks the sync instead of reaching a deployment.
 
 ## Architecture
 
